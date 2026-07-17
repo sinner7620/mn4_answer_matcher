@@ -2,13 +2,13 @@ import { MN } from "marginnote"
 
 const BUTTON_WIDTH = 96
 const BUTTON_HEIGHT = 34
+const TOOLBAR_HEIGHT = BUTTON_HEIGHT * 2 + 6
 
-export function createAnswerToolbar(): UIButton {
+function toolbarButton(title: string, color: string, selector: string): UIButton {
   const button = UIButton.buttonWithType(0)
-  button.frame = { x: 0, y: 0, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
-  button.setTitleForState("查找答案", 0)
+  button.setTitleForState(title, 0)
   button.setTitleColorForState(UIColor.whiteColor(), 0)
-  button.backgroundColor = UIColor.colorWithHexString("#4F6BED")
+  button.backgroundColor = UIColor.colorWithHexString(color)
   button.layer.cornerRadius = 7
   button.layer.masksToBounds = false
   const layer = button.layer as any
@@ -16,9 +16,26 @@ export function createAnswerToolbar(): UIButton {
   layer.shadowOffset = { width: 0, height: 1 }
   layer.shadowRadius = 2
   layer.shadowOpacity = 0.35
-  button.addTargetActionForControlEvents(self, "onAnswerToolbarClick:", 1 << 6)
-  button.hidden = true
+  button.addTargetActionForControlEvents(self, selector, 1 << 6)
   return button
+}
+
+export function createAnswerToolbar(): UIView {
+  const toolbar = new UIView({ x: 0, y: 0, width: BUTTON_WIDTH, height: TOOLBAR_HEIGHT })
+  toolbar.backgroundColor = UIColor.clearColor()
+
+  const answerButton = toolbarButton("查找答案", "#4F6BED", "onAnswerToolbarClick:")
+  answerButton.frame = { x: 0, y: 0, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
+  toolbar.addSubview(answerButton)
+
+  const mistakeButton = toolbarButton("错题分级", "#D97706", "onMistakeToolbarClick:")
+  mistakeButton.frame = { x: 0, y: BUTTON_HEIGHT + 6, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
+  toolbar.addSubview(mistakeButton)
+
+  self.answerToolbarButton = answerButton
+  self.mistakeToolbarButton = mistakeButton
+  toolbar.hidden = true
+  return toolbar
 }
 
 function parseWinRect(winRect: string): {
@@ -50,14 +67,13 @@ export function showAnswerToolbar(winRect: string): void {
     rightX + BUTTON_WIDTH <= studyFrame.width - gap
       ? rightX
       : Math.max(gap, leftX)
-  const maxY = Math.max(gap, studyFrame.height - BUTTON_HEIGHT - gap)
+  const maxY = Math.max(gap, studyFrame.height - TOOLBAR_HEIGHT - gap)
   const y = Math.max(
     gap,
-    Math.min(maxY, cardY + (rect.height - BUTTON_HEIGHT) / 2)
+    Math.min(maxY, cardY + (rect.height - TOOLBAR_HEIGHT) / 2)
   )
 
-  self.answerToolbar.frame = { x, y, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
-  self.answerToolbar.backgroundColor = UIColor.colorWithHexString("#4F6BED")
+  self.answerToolbar.frame = { x, y, width: BUTTON_WIDTH, height: TOOLBAR_HEIGHT }
   self.answerToolbar.hidden = false
   if (!self.answerToolbar.superview) {
     MN.studyController.view.addSubview(self.answerToolbar)
