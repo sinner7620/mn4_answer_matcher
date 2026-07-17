@@ -10,6 +10,7 @@ import {
 import { readSafeNote } from "../src/safe-note"
 import { renderCardHtml } from "../src/card-html"
 import { compareVersions } from "../src/version"
+import { freePositionFrame, isFrameFullyOutside } from "../src/answer-card-layout"
 
 test("标题标准化忽略全半角、空白、常见中英文标点和大小写", () => {
   assert.equal(normalizeTitle(" Ａbc ？\n"), "abc")
@@ -150,4 +151,18 @@ test("OTA 版本比较支持正式版和 GitHub 测试版标签", () => {
   assert.equal(compareVersions("1.9.1-beta.2", "1.9.1-beta.1"), 1)
   assert.equal(compareVersions("1.9.1", "1.9.1-beta.2"), 1)
   assert.equal(compareVersions("v1.9.0", "1.9.0"), 0)
+})
+
+test("答案窗口位置不再被屏幕边界限制", () => {
+  assert.deepEqual(
+    freePositionFrame({ x: -640, y: 900, width: 600, height: 500 }),
+    { x: -640, y: 900, width: 600, height: 500 }
+  )
+  assert.equal(
+    isFrameFullyOutside(
+      { x: -640, y: 100, width: 600, height: 500 },
+      { x: 0, y: 0, width: 1024, height: 768 }
+    ),
+    true
+  )
 })

@@ -1,4 +1,5 @@
 import { MN } from "marginnote"
+import { freePositionFrame, isFrameFullyOutside } from "./answer-card-layout"
 
 export function showAnswerCard(html: string): void {
   const host = MN.studyController.view
@@ -74,14 +75,11 @@ export function showAnswerCard(html: string): void {
   }
 
   const previous = self.answerCardView.frame
-  const width = Math.max(280, Math.min(previous.width, hostFrame.width - 12))
-  const height = Math.max(240, Math.min(previous.height, hostFrame.height - 12))
-  const frame = {
-    x: Math.max(0, Math.min(previous.x, hostFrame.width - width)),
-    y: Math.max(0, Math.min(previous.y, hostFrame.height - height)),
-    width,
-    height
-  }
+  const preserved = freePositionFrame(previous)
+  // A deliberately parked, partially off-screen window keeps its position.
+  // If it was moved completely away, looking up an answer again recovers it.
+  const frame = isFrameFullyOutside(preserved, hostFrame) ? defaultFrame : preserved
+  const { width, height } = frame
   self.answerCardView.frame = frame
   self.answerCardWebView.frame = { x: 0, y: 0, width, height }
   self.answerCardCloseButton.frame = { x: width - 44, y: 9, width: 34, height: 34 }
@@ -96,20 +94,10 @@ export function closeAnswerCard(): void {
   if (self.answerCardView) self.answerCardView.hidden = true
 }
 
-function clampFrame(frame: any): any {
-  const bounds = MN.studyController.view.bounds
-  const width = Math.max(280, Math.min(frame.width, bounds.width))
-  const height = Math.max(240, Math.min(frame.height, bounds.height))
-  return {
-    x: Math.max(0, Math.min(frame.x, bounds.width - width)),
-    y: Math.max(0, Math.min(frame.y, bounds.height - height)),
-    width,
-    height
-  }
-}
-
 function layoutAnswerCard(frame: any): void {
-  const next = clampFrame(frame)
+  // Position is intentionally unrestricted, so the answer can be parked away
+  // from the writing area. Only the minimum usable size is retained.
+  const next = freePositionFrame(frame)
   self.answerCardView.frame = next
   self.answerCardWebView.frame = { x: 0, y: 0, width: next.width, height: next.height }
   self.answerCardCloseButton.frame = { x: next.width - 44, y: 9, width: 34, height: 34 }
