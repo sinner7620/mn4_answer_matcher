@@ -32,8 +32,8 @@ import { openNoteInMindMap } from "./note-navigation"
 const LAST_REMINDER_KEY = "marginnote.extension.mn4-answer-matcher.mistake-reminder"
 const REMINDER_THROTTLE = 6 * 60 * 60 * 1000
 
-function noteId(note: MbBookNote): string {
-  return String(note.noteId ?? "")
+function noteId(note: MbBookNote | any): string {
+  return String(note?.noteId ?? note?.noteid ?? note?.id ?? note?.note?.noteId ?? "").trim()
 }
 
 function notebookTitle(notebookId: string): string {
@@ -198,6 +198,22 @@ export function mistakeRecordForQuestion(
   return recovered
 }
 
+function recoverLinkedMistakeRecords(state = loadMistakeState()): number {
+  if (!state.notebookId) return 0
+  const notebook = MN.db.getNotebookById(state.notebookId)
+  let recovered = 0
+  for (const mistakeNote of notebook?.notes ?? []) {
+    const id = noteId(mistakeNote)
+    if (!id || state.records[id]) continue
+    const record = recordFromLinkedSource(mistakeNote, state.notebookId)
+    if (!record?.mistakeNoteId) continue
+    upsertMistakeRecord(state, record)
+    recovered++
+  }
+  if (recovered) saveMistakeState(state)
+  return recovered
+}
+
 export function mistakeRecordForSourceQuestion(
   question: NodeNote,
   currentNotebookId: string
@@ -305,10 +321,23 @@ export async function markQuestionAsMistake(
   }
   if (!mistakeNote) throw new Error("复制错题卡片失败")
 
+  let mistakeNoteId = noteId(mistakeNote)
+  if (!mistakeNoteId) {
+    undoGroupingWithRefresh(() => {
+      if (!mistakeNote!.linkedNotes?.some(link => String(link.noteid) === sourceNoteId)) {
+        mistakeNote!.appendNoteLink(question.note)
+      }
+    })
+    persistDatabase(sourceNotebookId, mistakeNotebookId)
+    mistakeNote = existingClone(sourceNoteId, mistakeNotebookId) ?? mistakeNote
+    mistakeNoteId = noteId(mistakeNote)
+  }
+  if (!mistakeNoteId) throw new Error("错题卡片尚未生成有效 noteId，请稍后重试")
+
   const answerNotebookId = loadBindings()[sourceNotebookId]
   const created = createMistakeRecord(
     {
-      mistakeNoteId: noteId(mistakeNote),
+      mistakeNoteId,
       sourceNoteId,
       sourceNotebookId,
       sourceNotebookTitle: notebookTitle(sourceNotebookId),
@@ -389,6 +418,7 @@ export interface MistakeWorkbenchData {
 }
 
 export function mistakeWorkbenchData(): MistakeWorkbenchData {
+  recoverLinkedMistakeRecords()
   const state = loadMistakeState()
   const records = Object.values(state.records)
     .sort(compareMistakeRecords)
@@ -458,6 +488,7 @@ export async function openMistakeDirectory(): Promise<void> {
 export async function repairAndOrganizeMistakes(): Promise<void> {
   const state = loadMistakeState()
   if (!state.notebookId) return showHUD("尚未绑定总错题脑图", 3)
+  const recovered = recoverLinkedMistakeRecords(state)
   let repaired = 0
   let missing = 0
   for (const stored of Object.values(state.records)) {
@@ -491,7 +522,7 @@ export async function repairAndOrganizeMistakes(): Promise<void> {
   }
   saveMistakeState(state)
   persistDatabase(state.notebookId, ...Object.values(state.records).map(record => record.sourceNotebookId))
-  showHUD(`整理完成：${repaired} 道已分类并修复双向链接${missing ? `，${missing} 道卡片已失效` : ""}`, 5)
+  showHUD(`整理完成：${repaired} 道已分类并修复双向链接${recovered ? `，恢复 ${recovered} 道旧记录` : ""}${missing ? `，${missing} 道卡片已失效` : ""}`, 5)
 }
 
 function statsText(records: MistakeRecord[]): string {
