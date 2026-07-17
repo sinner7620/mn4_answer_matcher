@@ -1,6 +1,6 @@
 {
   "name": "mn4-answer-matcher",
-  "version": "2.0.0-beta.3",
+  "version": "2.1.0-beta.1",
   "private": true,
   "description": "MarginNote 4 跨脑图答案匹配插件",
   "author": "MN Answer Matcher Contributors",
@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
+    "dev:web": "vite --config web/vite.config.js",
     "check": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts"
   },
@@ -20,8 +21,16 @@
   "devDependencies": {
     "adm-zip": "0.5.16",
     "@types/adm-zip": "0.5.7",
-    "esbuild": "0.25.6",
+    "@vitejs/plugin-react": "6.0.1",
+    "esbuild": "0.27.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
     "tsx": "4.20.3",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "vite": "8.0.9"
+  },
+  "mnRails": {
+    "template": "web",
+    "version": "0.5.8"
   }
 }

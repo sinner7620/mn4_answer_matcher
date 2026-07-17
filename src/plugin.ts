@@ -211,6 +211,62 @@ export async function onMistakeToolbarClick(): Promise<void> {
   }
 }
 
+export interface AnswerWorkbenchCandidate {
+  id: string
+  title: string
+  path: string
+  html: string
+}
+
+export interface AnswerWorkbenchData {
+  questionTitle: string
+  sourceNotebookTitle: string
+  answerNotebookTitle?: string
+  status: "ready" | "unbound" | "not-found"
+  candidates: AnswerWorkbenchCandidate[]
+}
+
+export function answerWorkbenchData(): AnswerWorkbenchData {
+  const questionNotebookId = currentNotebookId()
+  if (!questionNotebookId) throw new Error("请先打开题目脑图")
+  const question = selectedQuestion()
+  if (!question) throw new Error("请先选中一张题目卡片")
+  const mistakeContext = mistakeAnswerContext(question, questionNotebookId)
+  const lookupQuestion = mistakeContext?.sourceQuestion ?? question
+  const sourceNotebookId = mistakeContext?.record.sourceNotebookId ?? questionNotebookId
+  const answerNotebookId = loadBindings()[sourceNotebookId] ?? mistakeContext?.record.answerNotebookId
+  const questionTitle = question.title?.trim() || "未命名题目"
+  if (!answerNotebookId) {
+    return {
+      questionTitle,
+      sourceNotebookTitle: notebookTitle(sourceNotebookId),
+      status: "unbound",
+      candidates: []
+    }
+  }
+  let titles = [questionTitle]
+  let path: string[] = mistakeContext?.record.sourcePathTitles ?? []
+  try {
+    titles = Array.from(new Set([questionTitle, ...lookupQuestion.titles.map(title => title.trim())])).filter(Boolean)
+    path = lookupQuestion.ancestorNodes.map(node => node.title?.trim()).filter(Boolean) as string[]
+  } catch {
+    // Stored source metadata is the fallback for migrated mistake cards.
+  }
+  const matches = findAnswers(answerNotebookId, titles, path)
+  return {
+    questionTitle,
+    sourceNotebookTitle: notebookTitle(sourceNotebookId),
+    answerNotebookTitle: notebookTitle(answerNotebookId),
+    status: matches.length ? "ready" : "not-found",
+    candidates: matches.map(answer => ({
+      id: answer.noteId,
+      title: answer.titles[0] || "答案卡片",
+      path: answer.pathTitles.filter(Boolean).join(" › "),
+      html: answerCardHtml(answer, questionTitle)
+    }))
+  }
+}
+
 export async function onMistakeLinkToolbarClick(): Promise<void> {
   hideAnswerToolbar()
   try {

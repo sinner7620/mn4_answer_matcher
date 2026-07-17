@@ -1,63 +1,70 @@
-import { build } from "esbuild"
+import { build as esbuild } from "esbuild"
+import { build as viteBuild } from "vite"
 import AdmZip from "adm-zip"
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 const root = process.cwd()
-const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"))
-const repository = packageJson.repository?.url
-  ?.replace(/^https:\/\/github\.com\//, "")
-  .replace(/\.git$/, "")
+const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"))
+const repository = pkg.repository?.url?.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "")
 if (!repository || !/^[\w.-]+\/[\w.-]+$/.test(repository)) {
   throw new Error("package.json repository.url 必须是 GitHub owner/repository 地址")
 }
-const unpacked = path.join(root, "dist", "mn4-answer-matcher")
-const archive = path.join(
-  root,
-  "dist",
-  `mn4-answer-matcher-v${packageJson.version}.mnaddon`
-)
 
-await rm(path.join(root, "dist"), { recursive: true, force: true })
-await mkdir(unpacked, { recursive: true })
+const distRoot = path.join(root, "dist")
+const addonRoot = path.join(distRoot, "mn4-answer-matcher")
+const webDist = path.join(root, "web-dist")
+const archive = path.join(distRoot, `mn4-answer-matcher-v${pkg.version}.mnaddon`)
 
-await build({
-  entryPoints: [path.join(root, "src", "main.ts")],
-  outfile: path.join(unpacked, "main.js"),
+await rm(distRoot, { recursive: true, force: true })
+await rm(webDist, { recursive: true, force: true })
+await mkdir(addonRoot, { recursive: true })
+
+await esbuild({
+  entryPoints: [path.join(root, "src", "rails-core.ts")],
+  outfile: path.join(addonRoot, "AnswerMatcherCore.js"),
   bundle: true,
   minify: true,
   platform: "browser",
   target: "safari13",
   define: {
-    __APP_VERSION__: JSON.stringify(packageJson.version),
+    __APP_VERSION__: JSON.stringify(pkg.version),
     __GITHUB_REPOSITORY__: JSON.stringify(repository)
   },
   banner: { js: "try {" },
-  footer: {
-    js: '} catch (e) { Application.sharedInstance().alert("答案匹配-" + String(e)) }'
-  }
+  footer: { js: '} catch (e) { Application.sharedInstance().alert("答案匹配-" + String(e)) }' }
 })
+
+await viteBuild({ configFile: path.join(root, "web", "vite.config.js") })
+await writeFile(path.join(webDist, "index.html"), `<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>答案与错题工作台</title><link rel="stylesheet" href="./app.css"></head><body><div id="root"></div><script src="./app.js"></script></body></html>\n`)
+
+for (const name of ["main.js", "WebBridgeCommands.js", "WebPanelController.js", "WebAddon.js"]) {
+  await copyFile(path.join(root, "rails-native", name), path.join(addonRoot, name))
+}
+await cp(webDist, path.join(addonRoot, "web-dist"), { recursive: true })
+await copyFile(path.join(root, "assets", "logo.png"), path.join(addonRoot, "logo.png"))
 
 const manifest = {
   addonid: "marginnote.extension.mn4-answer-matcher",
   author: "MN Answer Matcher Contributors",
-  title: "答案匹配",
-  version: packageJson.version,
+  title: "跨脑图卡片匹配",
+  version: pkg.version,
   marginnote_version_min: "4.0.0",
   cert_key: ""
 }
-
-await writeFile(
-  path.join(unpacked, "mnaddon.json"),
-  `${JSON.stringify(manifest, null, 2)}\n`,
-  "utf8"
-)
-await copyFile(path.join(root, "assets", "logo.png"), path.join(unpacked, "logo.png"))
+await writeFile(path.join(addonRoot, "mnaddon.json"), `${JSON.stringify(manifest, null, 2)}\n`)
 
 const zip = new AdmZip()
-for (const name of ["main.js", "mnaddon.json", "logo.png"]) {
-  zip.addFile(name, await readFile(path.join(unpacked, name)))
+async function addDirectory(directory, prefix = "") {
+  const { readdir } = await import("node:fs/promises")
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name)
+    const relative = path.posix.join(prefix, entry.name)
+    if (entry.isDirectory()) await addDirectory(absolute, relative)
+    else zip.addFile(relative, await readFile(absolute))
+  }
 }
+await addDirectory(addonRoot)
 zip.writeZip(archive)
-
-console.log(`Built ${archive}`)
+console.log(`Built MN Rails web add-on ${archive}`)

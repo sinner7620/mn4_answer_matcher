@@ -380,6 +380,50 @@ function validRecords(): MistakeRecord[] {
     .sort(compareMistakeRecords)
 }
 
+export interface MistakeWorkbenchData {
+  notebookId?: string
+  notebookTitle: string
+  records: MistakeRecord[]
+  dueCount: number
+  levelCounts: number[]
+}
+
+export function mistakeWorkbenchData(): MistakeWorkbenchData {
+  const state = loadMistakeState()
+  const records = validRecords()
+  return {
+    notebookId: state.notebookId,
+    notebookTitle: state.notebookId ? notebookTitle(state.notebookId) : "未绑定总错题脑图",
+    records,
+    dueCount: records.filter(record => isDue(record)).length,
+    levelCounts: [0, 1, 2, 3, 4, 5].map(level =>
+      records.filter(record => record.level === level).length
+    )
+  }
+}
+
+export async function openMistakeById(mistakeNoteId: string): Promise<void> {
+  const record = loadMistakeState().records[mistakeNoteId]
+  if (!record) throw new Error("错题记录不存在")
+  await openMistakeRecord(record)
+}
+
+export async function openSourceByMistakeId(mistakeNoteId: string): Promise<void> {
+  const record = loadMistakeState().records[mistakeNoteId]
+  if (!record) throw new Error("错题记录不存在")
+  await openNoteInMindMap(record.sourceNoteId, record.sourceNotebookId)
+}
+
+export async function reviewMistakeById(
+  mistakeNoteId: string,
+  level: MistakeLevel
+): Promise<MistakeRecord> {
+  const record = loadMistakeState().records[mistakeNoteId]
+  if (!record) throw new Error("错题记录不存在")
+  if (level < 0 || level > 5) throw new Error("错题等级必须为 0–5")
+  return updateExistingRecord(record, level)
+}
+
 export async function openMistakeDirectory(): Promise<void> {
   const records = validRecords()
   if (!records.length) return showHUD("还没有可整理的错题", 3)
