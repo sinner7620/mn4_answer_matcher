@@ -11,6 +11,12 @@ import { readSafeNote } from "../src/safe-note"
 import { renderCardHtml } from "../src/card-html"
 import { compareVersions } from "../src/version"
 import { freePositionFrame, isFrameFullyOutside } from "../src/answer-card-layout"
+import {
+  createMistakeRecord,
+  isDue,
+  nextReviewTime,
+  reviewMistake
+} from "../src/mistake-domain"
 
 test("标题标准化忽略全半角、空白、常见中英文标点和大小写", () => {
   assert.equal(normalizeTitle(" Ａbc ？\n"), "abc")
@@ -165,4 +171,30 @@ test("答案窗口位置不再被屏幕边界限制", () => {
     ),
     true
   )
+})
+
+test("错题等级采用不同复习曲线", () => {
+  const now = new Date("2026-07-17T00:00:00.000Z")
+  assert.equal(nextReviewTime(0, 0, now).toISOString(), "2026-07-18T00:00:00.000Z")
+  assert.equal(nextReviewTime(4, 0, now).toISOString(), "2026-07-24T00:00:00.000Z")
+  assert.equal(nextReviewTime(5, 0, now).toISOString(), "2026-08-16T00:00:00.000Z")
+})
+
+test("错题记录保存首次时间、复习历史和下次到期时间", () => {
+  const createdAt = new Date("2026-07-17T00:00:00.000Z")
+  const record = createMistakeRecord({
+    mistakeNoteId: "mistake",
+    sourceNoteId: "source",
+    sourceNotebookId: "questions",
+    sourceNotebookTitle: "题目脑图",
+    sourceTitle: "1994数一",
+    sourcePathTitles: ["基本概念题"],
+    answerNotebookId: "answers",
+    level: 1
+  }, createdAt)
+  const reviewed = reviewMistake(record, 1, new Date("2026-07-18T00:00:00.000Z"))
+  assert.equal(reviewed.reviewCount, 1)
+  assert.equal(reviewed.history.length, 2)
+  assert.equal(reviewed.nextReviewAt, "2026-07-21T00:00:00.000Z")
+  assert.equal(isDue(reviewed, new Date("2026-07-21T00:00:00.000Z")), true)
 })
