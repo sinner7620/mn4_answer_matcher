@@ -10,9 +10,10 @@ import {
 } from "./domain"
 import { readSafeNote } from "./safe-note"
 import { renderCardHtml } from "./card-html"
+import { loadStoredIndex, saveStoredIndex, StoredAnswerIndexItem } from "./index-store"
 
 export interface IndexedAnswer extends AnswerLike {
-  note: MbBookNote
+  noteId: string
   notebookId: string
   pathTitles: string[]
 }
@@ -46,7 +47,7 @@ function toIndexedAnswer(
   return {
     answer: {
       id: nodeId(node),
-      note: node.note,
+      noteId: String(node.note.noteId),
       notebookId,
       pathTitles: pathTitles(node),
       titles: safe.titles,
@@ -82,7 +83,36 @@ export function refreshIndex(notebookId: string): RefreshResult {
   }
   const answers = [...byId.values()]
   indexes.set(notebookId, buildIndex(answers))
+  saveStoredIndex(notebookId, answers.map(toStoredAnswer))
   return { indexedCards: answers.length, skippedCards, brokenLinks }
+}
+
+function shortened(value: string): string {
+  return value.slice(0, 240)
+}
+
+function toStoredAnswer(answer: IndexedAnswer): StoredAnswerIndexItem {
+  return {
+    id: answer.id,
+    noteId: answer.noteId,
+    notebookId: answer.notebookId,
+    pathTitles: answer.pathTitles,
+    titles: answer.titles,
+    tags: answer.tags,
+    comments: answer.comments.slice(0, 1).map(shortened),
+    excerpts: answer.excerpts.slice(0, 1).map(shortened),
+    children: answer.children.slice(0, 1).map(child => ({
+      title: shortened(child.title),
+      text: shortened(child.text)
+    }))
+  }
+}
+
+function restoreIndex(notebookId: string): boolean {
+  const stored = loadStoredIndex(notebookId)
+  if (!stored?.length) return false
+  indexes.set(notebookId, buildIndex(stored as IndexedAnswer[]))
+  return true
 }
 
 export function clearIndex(notebookId?: string): void {
@@ -95,7 +125,9 @@ export function findAnswers(
   questionTitles: string | string[],
   questionPath: string[] = []
 ): IndexedAnswer[] {
-  if (!indexes.has(notebookId)) refreshIndex(notebookId)
+  if (!indexes.has(notebookId) && !restoreIndex(notebookId)) {
+    throw new Error("答案索引尚未建立，请在插件菜单点击“刷新答案索引”")
+  }
   const index = indexes.get(notebookId)
   const matchesById = new Map<string, IndexedAnswer>()
   const titles = Array.isArray(questionTitles) ? questionTitles : [questionTitles]
@@ -116,8 +148,10 @@ export function answerText(answer: IndexedAnswer): string {
 }
 
 export function answerCardHtml(answer: IndexedAnswer, questionTitle: string): string {
+  const note = MN.db.getNoteById(answer.noteId)
+  if (!note) throw new Error("答案卡片已不存在，请刷新答案索引")
   return renderCardHtml(
-    answer.note,
+    note,
     questionTitle,
     noteId => MN.db.getNoteById(noteId),
     hash => {

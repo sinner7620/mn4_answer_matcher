@@ -3,6 +3,7 @@ import {
   defineEventHandlers,
   defineLifecycleHandlers,
   eventObserverController,
+  HUDController,
   MN,
   NodeNote,
   popup,
@@ -66,7 +67,14 @@ async function bindAnswerNotebook(): Promise<void> {
   const bindings = loadBindings()
   bindings[questionNotebookId] = answerNotebookId
   saveBindings(bindings)
-  const refreshResult = refreshIndex(answerNotebookId)
+  HUDController.show("正在建立答案索引，请稍候…")
+  await delay(0.08)
+  let refreshResult
+  try {
+    refreshResult = refreshIndex(answerNotebookId)
+  } finally {
+    HUDController.hidden()
+  }
   const warning = refreshResult.brokenLinks || refreshResult.skippedCards
     ? `；忽略 ${refreshResult.brokenLinks} 个失效引用、${refreshResult.skippedCards} 张异常卡片`
     : ""
@@ -163,7 +171,14 @@ async function refreshCurrentIndex(): Promise<void> {
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
   const answerNotebookId = loadBindings()[questionNotebookId]
   if (!answerNotebookId) return showHUD("当前脑图尚未绑定答案脑图")
-  const result = refreshIndex(answerNotebookId)
+  HUDController.show("正在重建答案索引，请稍候…")
+  await delay(0.08)
+  let result
+  try {
+    result = refreshIndex(answerNotebookId)
+  } finally {
+    HUDController.hidden()
+  }
   const warning = result.brokenLinks || result.skippedCards
     ? `；忽略 ${result.brokenLinks} 个失效引用、${result.skippedCards} 张异常卡片`
     : ""
@@ -222,14 +237,6 @@ export const lifecycle = defineLifecycleHandlers({
     notebookWillOpen(notebookId: string) {
       eventObservers.remove()
       eventObservers.add()
-      const answerNotebookId = loadBindings()[notebookId]
-      if (answerNotebookId) {
-        try {
-          refreshIndex(answerNotebookId)
-        } catch (error) {
-          MN.error(error)
-        }
-      }
     },
     notebookWillClose() {
       eventObservers.remove()
