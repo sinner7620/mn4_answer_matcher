@@ -197,6 +197,7 @@ export async function onMistakeToolbarClick(): Promise<void> {
     if (!notebookId || !question) return showHUD("请先选中一张题目卡片")
     const record = await markQuestionAsMistake(question, notebookId)
     if (!record) return
+    notifyWorkbenchDataChanged()
     const next = await popup({
       title: "错题已记录",
       message: "可以立即核对答案，或跳转到总错题脑图检查摘录结果。",
@@ -208,6 +209,20 @@ export async function onMistakeToolbarClick(): Promise<void> {
   } catch (error) {
     MN.error(error)
     showHUD(`错题摘录失败：${String(error)}`, 5)
+  }
+}
+
+function notifyWorkbenchDataChanged(): void {
+  try {
+    const webView = self.webController?.webView
+    if (webView) {
+      webView.evaluateJavaScript(
+        "typeof window.__onNativeDataChanged==='function'&&window.__onNativeDataChanged()",
+        () => undefined
+      )
+    }
+  } catch {
+    // The workbench may not have been opened yet; it loads fresh data when shown.
   }
 }
 

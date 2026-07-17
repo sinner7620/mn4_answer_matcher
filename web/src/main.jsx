@@ -37,8 +37,17 @@ function App() {
   useEffect(() => {
     load()
     window.__onPanelShow = load
-    return () => { delete window.__onPanelShow }
+    window.__onNativeDataChanged = load
+    return () => {
+      delete window.__onPanelShow
+      delete window.__onNativeDataChanged
+    }
   }, [])
+
+  function switchTab(next) {
+    setTab(next)
+    if (next !== tab) load()
+  }
 
   const records = useMemo(() => {
     const items = data?.mistakes?.records || []
@@ -62,10 +71,10 @@ function App() {
     <aside>
       <div className="brand"><span className="brandMark">M</span><div><strong>答案匹配</strong><small>MN Rails 工作台</small></div></div>
       <nav>
-        <button className={tab === "answer" ? "active" : ""} onClick={() => setTab("answer")}><span>⌕</span>答案核对</button>
-        <button className={tab === "mistakes" ? "active" : ""} onClick={() => setTab("mistakes")}><span>◇</span>错题整理</button>
-        <button className={tab === "review" ? "active" : ""} onClick={() => setTab("review")}><span>↻</span>到期复习<b>{data?.mistakes?.dueCount || 0}</b></button>
-        <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}><span>⚙</span>维护</button>
+        <button className={tab === "answer" ? "active" : ""} onClick={() => switchTab("answer")}><span>⌕</span>答案核对</button>
+        <button className={tab === "mistakes" ? "active" : ""} onClick={() => switchTab("mistakes")}><span>◇</span>错题整理</button>
+        <button className={tab === "review" ? "active" : ""} onClick={() => switchTab("review")}><span>↻</span>到期复习<b>{data?.mistakes?.dueCount || 0}</b></button>
+        <button className={tab === "settings" ? "active" : ""} onClick={() => switchTab("settings")}><span>⚙</span>维护</button>
       </nav>
       <div className="version">v{data?.version || "…"}</div>
     </aside>
@@ -101,7 +110,7 @@ function App() {
 }
 
 function MistakeRow({ item, action, review }) {
-  return <article className="mistakeRow"><div className={`level level${item.level}`}>{item.level}</div><div className="mistakeInfo"><strong>{item.sourceTitle}</strong><small>{item.sourceNotebookTitle} · 下次 {new Date(item.nextReviewAt).toLocaleDateString()}</small></div>{review ? <select value={item.level} onChange={event => action("reviewMistake", { mistakeNoteId: item.mistakeNoteId, level: Number(event.target.value) })}>{levelNames.map((name, index) => <option key={name} value={index}>{index}级 · {name}</option>)}</select> : <div className="rowActions"><button onClick={() => action("openSource", { mistakeNoteId: item.mistakeNoteId }, false)}>原题</button><button onClick={() => action("openMistake", { mistakeNoteId: item.mistakeNoteId }, false)}>错题</button></div>}</article>
+  return <article className={`mistakeRow ${item.noteAvailable ? "" : "unavailable"}`}><div className={`level level${item.level}`}>{item.level}</div><div className="mistakeInfo"><strong>{item.sourceTitle}</strong><small>{item.sourceNotebookTitle} · 下次 {new Date(item.nextReviewAt).toLocaleDateString()}{item.noteAvailable ? "" : " · 错题卡片待同步"}</small></div>{review ? <select value={item.level} onChange={event => action("reviewMistake", { mistakeNoteId: item.mistakeNoteId, level: Number(event.target.value) })}>{levelNames.map((name, index) => <option key={name} value={index}>{index}级 · {name}</option>)}</select> : <div className="rowActions"><button onClick={() => action("openSource", { mistakeNoteId: item.mistakeNoteId }, false)}>原题</button><button disabled={!item.noteAvailable} onClick={() => action("openMistake", { mistakeNoteId: item.mistakeNoteId }, false)}>错题</button></div>}</article>
 }
 
 createRoot(document.getElementById("root")).render(<App />)

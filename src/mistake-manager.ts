@@ -383,14 +383,19 @@ function validRecords(): MistakeRecord[] {
 export interface MistakeWorkbenchData {
   notebookId?: string
   notebookTitle: string
-  records: MistakeRecord[]
+  records: Array<MistakeRecord & { noteAvailable: boolean }>
   dueCount: number
   levelCounts: number[]
 }
 
 export function mistakeWorkbenchData(): MistakeWorkbenchData {
   const state = loadMistakeState()
-  const records = validRecords()
+  const records = Object.values(state.records)
+    .sort(compareMistakeRecords)
+    .map(record => ({
+      ...record,
+      noteAvailable: Boolean(MN.db.getNoteById(record.mistakeNoteId))
+    }))
   return {
     notebookId: state.notebookId,
     notebookTitle: state.notebookId ? notebookTitle(state.notebookId) : "未绑定总错题脑图",
