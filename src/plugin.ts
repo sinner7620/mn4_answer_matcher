@@ -32,7 +32,11 @@ import {
   bindMistakeNotebook,
   markQuestionAsMistake,
   mistakeAnswerContext,
+  openLinkedMistakeOrSource,
+  openMistakeDirectory,
+  openMistakeRecord,
   openMistakeReviewCenter,
+  repairAndOrganizeMistakes,
   scheduleMistakeReviewReminder,
   startMistakeReminderTimer,
   stopMistakeReminderTimer
@@ -191,10 +195,32 @@ export async function onMistakeToolbarClick(): Promise<void> {
     const notebookId = currentNotebookId()
     const question = selectedQuestion()
     if (!notebookId || !question) return showHUD("请先选中一张题目卡片")
-    await markQuestionAsMistake(question, notebookId)
+    const record = await markQuestionAsMistake(question, notebookId)
+    if (!record) return
+    const next = await popup({
+      title: "错题已记录",
+      message: "可以立即核对答案，或跳转到总错题脑图检查摘录结果。",
+      buttons: ["完成", "核对答案", "打开错题"],
+      canCancel: true
+    })
+    if (next.buttonIndex === 1) await runSafely(findCurrentAnswer)
+    else if (next.buttonIndex === 2) await openMistakeRecord(record)
   } catch (error) {
     MN.error(error)
     showHUD(`错题摘录失败：${String(error)}`, 5)
+  }
+}
+
+export async function onMistakeLinkToolbarClick(): Promise<void> {
+  hideAnswerToolbar()
+  try {
+    const notebookId = currentNotebookId()
+    const question = selectedQuestion()
+    if (!notebookId || !question) return showHUD("请先选中一张题目或错题卡片")
+    await openLinkedMistakeOrSource(question, notebookId)
+  } catch (error) {
+    MN.error(error)
+    showHUD(`卡片跳转失败：${String(error)}`, 5)
   }
 }
 
@@ -247,6 +273,9 @@ export async function openMenu(): Promise<void> {
       "查找当前卡片答案",
       "错题分级并摘录",
       "错题统计与到期复习",
+      "错题分类目录",
+      "打开错题 / 返回原题",
+      "修复并整理错题记录",
       "绑定/更换总错题脑图",
       "绑定/更换答案脑图",
       "刷新答案索引",
@@ -260,11 +289,18 @@ export async function openMenu(): Promise<void> {
   if (result.index === 0) await runSafely(findCurrentAnswer)
   else if (result.index === 1) await onMistakeToolbarClick()
   else if (result.index === 2) await openMistakeReviewCenter()
-  else if (result.index === 3) await bindMistakeNotebook()
-  else if (result.index === 4) await runSafely(bindAnswerNotebook)
-  else if (result.index === 5) await runSafely(refreshCurrentIndex)
-  else if (result.index === 6) await checkForUpdates(true)
-  else if (result.index === 7) await runSafely(unbindCurrent)
+  else if (result.index === 3) await openMistakeDirectory()
+  else if (result.index === 4) {
+    const question = selectedQuestion()
+    if (!question) showHUD("请先选中一张题目或错题卡片")
+    else await openLinkedMistakeOrSource(question, questionNotebookId)
+  }
+  else if (result.index === 5) await repairAndOrganizeMistakes()
+  else if (result.index === 6) await bindMistakeNotebook()
+  else if (result.index === 7) await runSafely(bindAnswerNotebook)
+  else if (result.index === 8) await runSafely(refreshCurrentIndex)
+  else if (result.index === 9) await checkForUpdates(true)
+  else if (result.index === 10) await runSafely(unbindCurrent)
 }
 
 export const lifecycle = defineLifecycleHandlers({

@@ -1,5 +1,5 @@
 import { getLocalDataByKey, setLocalDataByKey } from "marginnote"
-import { MistakeRecord, sourceRecordKey } from "./mistake-domain"
+import { MistakeRecord, mistakeCategoryPath, sourceRecordKey } from "./mistake-domain"
 
 const STORAGE_KEY = "mn4-answer-matcher.mistakes.v1"
 const BACKUP_KEY = "marginnote.extension.mn4-answer-matcher.mistakes.v1"
@@ -27,9 +27,13 @@ export function loadMistakeState(): MistakeState {
   }
   if (!value || typeof value !== "object") return emptyState()
   const state = value as Partial<MistakeState>
+  const records = state.records && typeof state.records === "object" ? state.records : {}
+  for (const record of Object.values(records)) {
+    if (!record.categoryPath?.length) record.categoryPath = mistakeCategoryPath(record)
+  }
   return {
     notebookId: typeof state.notebookId === "string" ? state.notebookId : undefined,
-    records: state.records && typeof state.records === "object" ? state.records : {},
+    records,
     sourceIndex: state.sourceIndex && typeof state.sourceIndex === "object"
       ? state.sourceIndex
       : {}

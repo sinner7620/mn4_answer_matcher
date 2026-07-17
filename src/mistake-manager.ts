@@ -14,6 +14,9 @@ import {
   createMistakeRecord,
   isDue,
   LEVEL_DESCRIPTIONS,
+  compareMistakeRecords,
+  mistakeCategoryLabel,
+  mistakeCategoryPath,
   MistakeLevel,
   MistakeRecord,
   reviewMistake
@@ -24,6 +27,7 @@ import {
   saveMistakeState,
   upsertMistakeRecord
 } from "./mistake-store"
+import { openNoteInMindMap } from "./note-navigation"
 
 const LAST_REMINDER_KEY = "marginnote.extension.mn4-answer-matcher.mistake-reminder"
 const REMINDER_THROTTLE = 6 * 60 * 60 * 1000
@@ -63,9 +67,22 @@ async function chooseLevel(current?: MistakeLevel): Promise<MistakeLevel | undef
   return result.index < 0 ? undefined : (result.index as MistakeLevel)
 }
 
-function applyLevelTags(node: NodeNote, level: MistakeLevel): void {
-  const tags = node.tags.filter(tag => tag !== "错题" && !/^错题[0-5]级$/.test(tag))
-  node.tags = [...tags, "错题", `错题${level}级`]
+function tagPart(value: string): string {
+  return value.replace(/[\n\r#]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40)
+}
+
+function applyMistakeTags(node: NodeNote, record: MistakeRecord, level: MistakeLevel): void {
+  const tags = node.tags.filter(tag =>
+    tag !== "错题" &&
+    !/^错题[0-5]级$/.test(tag) &&
+    !/^(来源|章节)·/.test(tag)
+  )
+  const category = mistakeCategoryPath(record)
+  const classified = [
+    `来源·${tagPart(record.sourceNotebookTitle)}`,
+    category.length > 1 ? `章节·${tagPart(category[1])}` : ""
+  ].filter(Boolean)
+  node.tags = [...tags, "错题", `错题${level}级`, ...classified]
   node.tidyupTags()
 }
 
@@ -157,6 +174,7 @@ function recordFromLinkedSource(
       sourceNotebookTitle: notebookTitle(sourceNote.notebookId),
       sourceTitle: sourceQuestion.title?.trim() || "未命名错题",
       sourcePathTitles: pathTitles(sourceQuestion),
+      categoryPath: [notebookTitle(sourceNote.notebookId), ...pathTitles(sourceQuestion)],
       answerNotebookId: loadBindings()[sourceNote.notebookId],
       level
     },
@@ -178,6 +196,13 @@ export function mistakeRecordForQuestion(
     saveMistakeState(state)
   }
   return recovered
+}
+
+export function mistakeRecordForSourceQuestion(
+  question: NodeNote,
+  currentNotebookId: string
+): MistakeRecord | undefined {
+  return recordForSource(loadMistakeState(), currentNotebookId, noteId(question.note))
 }
 
 export interface MistakeAnswerContext {
@@ -216,14 +241,14 @@ async function updateExistingRecord(
   const sourceNote = MN.db.getNoteById(record.sourceNoteId)
   undoGroupingWithRefresh(() => {
     if (mistakeNote) {
-      applyLevelTags(new NodeNote(mistakeNote, loadMistakeState().notebookId), level)
+      applyMistakeTags(new NodeNote(mistakeNote, loadMistakeState().notebookId), updated, level)
       mistakeNote.appendTextComment(
         `【错题复习】${formatTime(updated.lastReviewedAt!)} · ${level}级 · 下次 ${formatTime(
           updated.nextReviewAt
         )}`
       )
     }
-    if (sourceNote) applyLevelTags(new NodeNote(sourceNote, record.sourceNotebookId), level)
+    if (sourceNote) applyMistakeTags(new NodeNote(sourceNote, record.sourceNotebookId), updated, level)
   })
   const state = loadMistakeState()
   upsertMistakeRecord(state, updated)
@@ -235,22 +260,29 @@ async function updateExistingRecord(
 export async function markQuestionAsMistake(
   question: NodeNote,
   sourceNotebookId: string
-): Promise<void> {
+): Promise<MistakeRecord | undefined> {
   const mistakeNotebookId = await ensureMistakeNotebook()
   if (!mistakeNotebookId) return
 
   const inMistakeNotebook = mistakeNotebookId === sourceNotebookId
   if (inMistakeNotebook) {
     const record = mistakeRecordForQuestion(question, sourceNotebookId)
-    if (!record) return showHUD("这张卡片没有可识别的原题来源", 4)
+    if (!record) {
+      showHUD("这张卡片没有可识别的原题来源", 4)
+      return
+    }
     const level = await chooseLevel(record.level)
     if (level === undefined) return
     const updated = await updateExistingRecord(record, level)
-    return showHUD(`已记录为 ${level} 级；下次复习 ${formatTime(updated.nextReviewAt)}`, 4)
+    showHUD(`已记录为 ${level} 级；下次复习 ${formatTime(updated.nextReviewAt)}`, 4)
+    return updated
   }
 
   const sourceNoteId = noteId(question.note)
-  if (!sourceNoteId) return showHUD("所选卡片没有 noteId，无法摘录")
+  if (!sourceNoteId) {
+    showHUD("所选卡片没有 noteId，无法摘录")
+    return
+  }
   const state = loadMistakeState()
   let record = recordForSource(state, sourceNotebookId, sourceNoteId)
   if (record && !MN.db.getNoteById(record.mistakeNoteId)) record = undefined
@@ -261,7 +293,8 @@ export async function markQuestionAsMistake(
   if (level === undefined) return
   if (record) {
     const updated = await updateExistingRecord(record, level)
-    return showHUD(`错题记录已更新为 ${level} 级；下次复习 ${formatTime(updated.nextReviewAt)}`, 4)
+    showHUD(`错题记录已更新为 ${level} 级；下次复习 ${formatTime(updated.nextReviewAt)}`, 4)
+    return updated
   }
 
   let mistakeNote = clone
@@ -281,6 +314,7 @@ export async function markQuestionAsMistake(
       sourceNotebookTitle: notebookTitle(sourceNotebookId),
       sourceTitle: question.title?.trim() || "未命名错题",
       sourcePathTitles: pathTitles(question),
+      categoryPath: [notebookTitle(sourceNotebookId), ...pathTitles(question)],
       answerNotebookId,
       level
     },
@@ -288,10 +322,13 @@ export async function markQuestionAsMistake(
   )
 
   undoGroupingWithRefresh(() => {
-    applyLevelTags(question, level)
-    applyLevelTags(new NodeNote(mistakeNote!, mistakeNotebookId), level)
+    applyMistakeTags(question, created, level)
+    applyMistakeTags(new NodeNote(mistakeNote!, mistakeNotebookId), created, level)
     if (!mistakeNote!.linkedNotes?.some(link => String(link.noteid) === sourceNoteId)) {
       mistakeNote!.appendNoteLink(question.note)
+    }
+    if (!question.note.linkedNotes?.some(link => String(link.noteid) === created.mistakeNoteId)) {
+      question.note.appendNoteLink(mistakeNote!)
     }
     mistakeNote!.appendTextComment(
       `【错题档案】\n首次记录：${formatTime(created.createdAt)}\n当前等级：${level}级 · ${
@@ -305,12 +342,107 @@ export async function markQuestionAsMistake(
   saveMistakeState(state)
   persistDatabase(sourceNotebookId, mistakeNotebookId)
   showHUD(`已摘录到总错题脑图，定为 ${level} 级`, 4)
+  return created
 }
 
 function dueRecords(): MistakeRecord[] {
   return Object.values(loadMistakeState().records)
     .filter(record => isDue(record) && Boolean(MN.db.getNoteById(record.mistakeNoteId)))
-    .sort((a, b) => a.nextReviewAt.localeCompare(b.nextReviewAt))
+    .sort((a, b) => a.nextReviewAt.localeCompare(b.nextReviewAt) || compareMistakeRecords(a, b))
+}
+
+export async function openLinkedMistakeOrSource(
+  question: NodeNote,
+  currentNotebookId: string
+): Promise<void> {
+  const state = loadMistakeState()
+  if (state.notebookId === currentNotebookId) {
+    const record = mistakeRecordForQuestion(question, currentNotebookId)
+    if (!record) return showHUD("这张错题没有可识别的原题链接", 4)
+    await openNoteInMindMap(record.sourceNoteId, record.sourceNotebookId)
+    return
+  }
+  const record = recordForSource(state, currentNotebookId, noteId(question.note))
+  if (!record || !MN.db.getNoteById(record.mistakeNoteId)) {
+    return showHUD("这张题目还没有对应的错题卡片", 4)
+  }
+  await openNoteInMindMap(record.mistakeNoteId, state.notebookId)
+}
+
+export async function openMistakeRecord(record: MistakeRecord): Promise<void> {
+  const state = loadMistakeState()
+  await openNoteInMindMap(record.mistakeNoteId, state.notebookId)
+}
+
+function validRecords(): MistakeRecord[] {
+  return Object.values(loadMistakeState().records)
+    .filter(record => Boolean(MN.db.getNoteById(record.mistakeNoteId)))
+    .sort(compareMistakeRecords)
+}
+
+export async function openMistakeDirectory(): Promise<void> {
+  const records = validRecords()
+  if (!records.length) return showHUD("还没有可整理的错题", 3)
+  const groups = new Map<string, MistakeRecord[]>()
+  for (const record of records) {
+    const label = mistakeCategoryLabel(record)
+    groups.set(label, [...(groups.get(label) ?? []), record])
+  }
+  const labels = [...groups.keys()]
+  const category = await select(
+    labels.map((label, index) => `${index + 1}. ${label}（${groups.get(label)!.length}题）`),
+    "错题分类目录",
+    "按来源脑图和章节分类，组内保持稳定排序",
+    true
+  )
+  if (category.index < 0) return
+  const chosen = groups.get(labels[category.index])!
+  const item = await select(
+    chosen.map((record, index) => `${index + 1}. [${record.level}级] ${record.sourceTitle}`),
+    labels[category.index],
+    "选择错题后跳转到总错题脑图",
+    true
+  )
+  if (item.index >= 0) await openMistakeRecord(chosen[item.index])
+}
+
+export async function repairAndOrganizeMistakes(): Promise<void> {
+  const state = loadMistakeState()
+  if (!state.notebookId) return showHUD("尚未绑定总错题脑图", 3)
+  let repaired = 0
+  let missing = 0
+  for (const stored of Object.values(state.records)) {
+    const mistakeNote = MN.db.getNoteById(stored.mistakeNoteId)
+    const sourceNote = MN.db.getNoteById(stored.sourceNoteId)
+    if (!mistakeNote || !sourceNote) {
+      missing++
+      continue
+    }
+    const sourceQuestion = new NodeNote(sourceNote, stored.sourceNotebookId)
+    const record: MistakeRecord = {
+      ...stored,
+      sourceNotebookTitle: notebookTitle(stored.sourceNotebookId),
+      sourceTitle: sourceQuestion.title?.trim() || stored.sourceTitle,
+      sourcePathTitles: pathTitles(sourceQuestion),
+      categoryPath: [notebookTitle(stored.sourceNotebookId), ...pathTitles(sourceQuestion)],
+      answerNotebookId: loadBindings()[stored.sourceNotebookId] ?? stored.answerNotebookId
+    }
+    undoGroupingWithRefresh(() => {
+      applyMistakeTags(sourceQuestion, record, record.level)
+      applyMistakeTags(new NodeNote(mistakeNote, state.notebookId), record, record.level)
+      if (!mistakeNote.linkedNotes?.some(link => String(link.noteid) === record.sourceNoteId)) {
+        mistakeNote.appendNoteLink(sourceNote)
+      }
+      if (!sourceNote.linkedNotes?.some(link => String(link.noteid) === record.mistakeNoteId)) {
+        sourceNote.appendNoteLink(mistakeNote)
+      }
+    })
+    upsertMistakeRecord(state, record)
+    repaired++
+  }
+  saveMistakeState(state)
+  persistDatabase(state.notebookId, ...Object.values(state.records).map(record => record.sourceNotebookId))
+  showHUD(`整理完成：${repaired} 道已分类并修复双向链接${missing ? `，${missing} 道卡片已失效` : ""}`, 5)
 }
 
 function statsText(records: MistakeRecord[]): string {

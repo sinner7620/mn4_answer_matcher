@@ -13,7 +13,9 @@ import { compareVersions } from "../src/version"
 import { freePositionFrame, isFrameFullyOutside } from "../src/answer-card-layout"
 import {
   createMistakeRecord,
+  compareMistakeRecords,
   isDue,
+  mistakeCategoryLabel,
   nextReviewTime,
   reviewMistake
 } from "../src/mistake-domain"
@@ -21,6 +23,28 @@ import {
 test("标题标准化忽略全半角、空白、常见中英文标点和大小写", () => {
   assert.equal(normalizeTitle(" Ａbc ？\n"), "abc")
   assert.equal(normalizeTitle("什么是 FFT："), normalizeTitle("什么是fft?"))
+})
+
+test("错题按来源章节和自然题号稳定排序", () => {
+  const base = createMistakeRecord({
+    mistakeNoteId: "m2",
+    sourceNoteId: "s2",
+    sourceNotebookId: "questions",
+    sourceNotebookTitle: "多元微分",
+    sourceTitle: "第10题",
+    sourcePathTitles: ["基本概念题"],
+    categoryPath: ["多元微分", "基本概念题"],
+    level: 1
+  }, new Date("2026-07-17T00:00:00.000Z"))
+  const first = { ...base, mistakeNoteId: "m1", sourceTitle: "第2题" }
+  const other = {
+    ...base,
+    mistakeNoteId: "m3",
+    sourceTitle: "第1题",
+    categoryPath: ["多元微分", "计算题"]
+  }
+  assert.deepEqual([base, other, first].sort(compareMistakeRecords).map(item => item.mistakeNoteId), ["m1", "m2", "m3"])
+  assert.equal(mistakeCategoryLabel(first), "多元微分 › 基本概念题")
 })
 
 test("索引同一卡片的重复标题只收录一次", () => {

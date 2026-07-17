@@ -6,6 +6,7 @@ import {
   onAnswerCardResize,
   onAnswerToolbarClick,
   onMistakeToolbarClick,
+  onMistakeLinkToolbarClick,
   onCloseAnswerCard,
   openMenu,
   queryAddonCommandStatus
@@ -19,6 +20,7 @@ const Extension = JSB.defineClass(
     queryAddonCommandStatus,
     onAnswerToolbarClick,
     onMistakeToolbarClick,
+    onMistakeLinkToolbarClick,
     onCloseAnswerCard,
     onAnswerCardPan,
     onAnswerCardResize,

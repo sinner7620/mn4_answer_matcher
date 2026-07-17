@@ -7,6 +7,7 @@ export interface MistakeRecord {
   sourceNotebookTitle: string
   sourceTitle: string
   sourcePathTitles: string[]
+  categoryPath?: string[]
   answerNotebookId?: string
   level: MistakeLevel
   createdAt: string
@@ -14,6 +15,32 @@ export interface MistakeRecord {
   nextReviewAt: string
   reviewCount: number
   history: Array<{ at: string; level: MistakeLevel }>
+}
+
+function cleanPart(value: string): string {
+  return value.replace(/\s+/g, " ").trim()
+}
+
+export function mistakeCategoryPath(record: MistakeRecord): string[] {
+  const stored = (record.categoryPath ?? []).map(cleanPart).filter(Boolean)
+  if (stored.length) return stored
+  const path = record.sourcePathTitles.map(cleanPart).filter(Boolean)
+  return [cleanPart(record.sourceNotebookTitle) || "未命名脑图", ...path]
+}
+
+export function mistakeCategoryLabel(record: MistakeRecord): string {
+  const path = mistakeCategoryPath(record)
+  return path.length > 1 ? path.slice(0, 3).join(" › ") : path[0]
+}
+
+export function compareMistakeRecords(a: MistakeRecord, b: MistakeRecord): number {
+  const collator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" })
+  const path = collator.compare(mistakeCategoryPath(a).join("\u0000"), mistakeCategoryPath(b).join("\u0000"))
+  if (path) return path
+  const title = collator.compare(a.sourceTitle, b.sourceTitle)
+  if (title) return title
+  const created = a.createdAt.localeCompare(b.createdAt)
+  return created || a.mistakeNoteId.localeCompare(b.mistakeNoteId)
 }
 
 export const LEVEL_DESCRIPTIONS: Record<MistakeLevel, string> = {

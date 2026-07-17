@@ -2,7 +2,7 @@ import { MN } from "marginnote"
 
 const BUTTON_WIDTH = 96
 const BUTTON_HEIGHT = 34
-const TOOLBAR_HEIGHT = BUTTON_HEIGHT * 2 + 6
+const TOOLBAR_HEIGHT = BUTTON_HEIGHT * 3 + 12
 
 function toolbarButton(title: string, color: string, selector: string): UIButton {
   const button = UIButton.buttonWithType(0)
@@ -32,8 +32,13 @@ export function createAnswerToolbar(): UIView {
   mistakeButton.frame = { x: 0, y: BUTTON_HEIGHT + 6, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
   toolbar.addSubview(mistakeButton)
 
+  const linkButton = toolbarButton("原题 / 错题", "#0F766E", "onMistakeLinkToolbarClick:")
+  linkButton.frame = { x: 0, y: (BUTTON_HEIGHT + 6) * 2, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
+  toolbar.addSubview(linkButton)
+
   self.answerToolbarButton = answerButton
   self.mistakeToolbarButton = mistakeButton
+  self.mistakeLinkToolbarButton = linkButton
   toolbar.hidden = true
   return toolbar
 }
