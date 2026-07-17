@@ -42,6 +42,17 @@ await writeFile(path.join(webDist, "index.html"), `<!doctype html>
 for (const name of ["main.js", "WebBridgeCommands.js", "WebPanelController.js", "WebAddon.js"]) {
   await copyFile(path.join(root, "rails-native", name), path.join(addonRoot, name))
 }
+
+const entrySource = await readFile(path.join(addonRoot, "main.js"), "utf8")
+for (const match of entrySource.matchAll(/JSB\.require\("([^"]+)"\)/g)) {
+  const moduleName = match[1]
+  if (moduleName.endsWith(".js")) throw new Error(`JSB.require 模块名不能带 .js：${moduleName}`)
+  try {
+    await readFile(path.join(addonRoot, `${moduleName}.js`))
+  } catch {
+    throw new Error(`JSB.require 对应模块不存在：${moduleName}.js`)
+  }
+}
 await cp(webDist, path.join(addonRoot, "web-dist"), { recursive: true })
 await copyFile(path.join(root, "assets", "logo.png"), path.join(addonRoot, "logo.png"))
 
