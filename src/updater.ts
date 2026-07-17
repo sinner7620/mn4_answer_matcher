@@ -1,4 +1,4 @@
-import { delay, fetch, MN, NSURL, popup, showHUD } from "marginnote"
+import { delay, fetch, genNSURL, MN, popup, showHUD } from "marginnote"
 import { backupBindings } from "./store"
 import { compareVersions } from "./version"
 
@@ -85,7 +85,16 @@ async function downloadAndInstall(release: GitHubRelease, asset: ReleaseAsset): 
   // Persist a second copy outside the add-on-local storage before MarginNote replaces the bundle.
   backupBindings()
   showHUD("更新包已下载，正在交给 MarginNote 安装…", 4)
-  MN.app.openURL(NSURL.fileURLWithPath(path))
+  let fileURL
+  try {
+    // Foundation classes are JSBridge globals on iPad, not module exports.
+    fileURL = typeof NSURL !== "undefined" && NSURL.fileURLWithPath
+      ? NSURL.fileURLWithPath(path)
+      : undefined
+  } catch {
+    fileURL = undefined
+  }
+  MN.app.openURL(fileURL ?? genNSURL(`file://${path}`, true))
 }
 
 export async function checkForUpdates(interactive = true): Promise<void> {
