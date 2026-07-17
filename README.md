@@ -4,7 +4,7 @@
 
 ## 安装
 
-直接双击 `dist/mn4-answer-matcher-v2.1.0-beta.3.mnaddon`，由 MarginNote 4 导入。
+直接双击 `dist/mn4-answer-matcher-v2.1.0-beta.4.mnaddon`，由 MarginNote 4 导入。
 
 插件每 12 小时自动检查一次 [GitHub Releases](https://github.com/sinner7620/mn4_answer_matcher/releases)，发现正式版或测试版后可直接下载并交给 MarginNote 覆盖安装；也可从插件菜单选择“检查插件更新”。覆盖升级会保留原有脑图绑定记录，并在安装前额外写入恢复备份。
 
@@ -19,7 +19,7 @@
 
 ## MN Rails 工作台
 
-从 v2.1.0 起，插件迁移到 MN Rails 0.5.8 Web 模板架构。原生 JavaScriptCore 层继续负责 MarginNote 数据库、卡片操作、存储和 OTA；React WebView 只负责答案核对、错题分类、筛选、到期复习和维护界面，两层通过 MN Rails bridge 通信。
+从 v2.1.0 起，插件迁移到 MN Rails 0.5.8 Web 模板架构。原生 JavaScriptCore 层继续负责 MarginNote 数据库、卡片操作、存储和 OTA；React WebView 负责答案核对、错题浏览、筛选、到期复习和维护界面，两层通过 MN Rails bridge 通信。错题浏览支持按题名、来源脑图、章节和等级搜索，并可直接跳转到原题位置。
 
 工作台不会使用 WebView `localStorage` 保存绑定或错题数据，升级时仍沿用原 `addonid` 和原生存储键，因此覆盖安装不会清空答案绑定、答案索引和错题记录。
 

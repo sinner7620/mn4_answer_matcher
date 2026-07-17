@@ -5,6 +5,10 @@ import "./styles.css"
 
 const levelNames = ["完全不会", "看懂思路", "模仿做对", "查资料做对", "独立做对", "完全掌握"]
 
+function normalizeSearch(value) {
+  return String(value || "").normalize("NFKC").toLocaleLowerCase().replace(/[\s，,。.;；:：、/\\|()[\]【】{}]+/g, "")
+}
+
 function App() {
   const [tab, setTab] = useState("answer")
   const [data, setData] = useState(null)
@@ -51,10 +55,10 @@ function App() {
 
   const records = useMemo(() => {
     const items = data?.mistakes?.records || []
-    const needle = query.trim().toLocaleLowerCase()
+    const needle = normalizeSearch(query)
     return items.filter(item =>
       (level === "all" || String(item.level) === level) &&
-      (!needle || `${item.sourceTitle} ${item.sourceNotebookTitle} ${(item.categoryPath || []).join(" ")}`.toLocaleLowerCase().includes(needle))
+      (!needle || normalizeSearch(`${item.sourceTitle} ${item.sourceNotebookTitle} ${(item.categoryPath || []).join(" ")} ${(item.sourcePathTitles || []).join(" ")} ${item.level}级`).includes(needle))
     )
   }, [data, query, level])
 
@@ -72,7 +76,7 @@ function App() {
       <div className="brand"><span className="brandMark">M</span><div><strong>答案匹配</strong><small>MN Rails 工作台</small></div></div>
       <nav>
         <button className={tab === "answer" ? "active" : ""} onClick={() => switchTab("answer")}><span>⌕</span>答案核对</button>
-        <button className={tab === "mistakes" ? "active" : ""} onClick={() => switchTab("mistakes")}><span>◇</span>错题整理</button>
+        <button className={tab === "mistakes" ? "active" : ""} onClick={() => switchTab("mistakes")}><span>◇</span>错题浏览</button>
         <button className={tab === "review" ? "active" : ""} onClick={() => switchTab("review")}><span>↻</span>到期复习<b>{data?.mistakes?.dueCount || 0}</b></button>
         <button className={tab === "settings" ? "active" : ""} onClick={() => switchTab("settings")}><span>⚙</span>维护</button>
       </nav>
@@ -80,7 +84,7 @@ function App() {
     </aside>
 
     <main>
-      <header><div><h1>{tab === "answer" ? "答案核对" : tab === "mistakes" ? "错题整理" : tab === "review" ? "到期复习" : "维护与更新"}</h1><p>{tab === "answer" ? "选择题目后，在同一工作台查看完整答案" : data?.mistakes?.notebookTitle}</p></div><button className="iconButton" onClick={load} disabled={busy}>↻</button></header>
+      <header><div><h1>{tab === "answer" ? "答案核对" : tab === "mistakes" ? "错题浏览" : tab === "review" ? "到期复习" : "维护与更新"}</h1><p>{tab === "answer" ? "选择题目后，在同一工作台查看完整答案" : tab === "mistakes" ? `搜索全部错题并跳转至题目位置 · ${data?.mistakes?.notebookTitle || ""}` : data?.mistakes?.notebookTitle}</p></div><button className="iconButton" onClick={load} disabled={busy}>↻</button></header>
       {error && <div className="error">{error}</div>}
       {busy && <div className="loading"><i />正在同步 MarginNote 数据…</div>}
 
@@ -98,8 +102,8 @@ function App() {
 
       {tab === "mistakes" && <section>
         <div className="stats">{[0,1,2,3,4,5].map(value => <button key={value} onClick={() => setLevel(level === String(value) ? "all" : String(value))} className={level === String(value) ? "selected" : ""}><b>{data?.mistakes?.levelCounts?.[value] || 0}</b><span>{value}级</span></button>)}</div>
-        <div className="filters"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索题目、脑图或章节"/><button onClick={() => action("repairMistakes")}>修复并整理</button></div>
-        <div className="groups">{Object.entries(groups).map(([name, items]) => <div className="group" key={name}><h3>{name}<span>{items.length}</span></h3>{items.map(item => <MistakeRow key={item.mistakeNoteId} item={item} action={action}/>)}</div>)}</div>
+        <div className="filters"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索题名、来源脑图、章节或等级"/><button disabled>{records.length} / {data?.mistakes?.records?.length || 0} 道</button></div>
+        <div className="groups">{Object.keys(groups).length ? Object.entries(groups).map(([name, items]) => <div className="group" key={name}><h3>{name}<span>{items.length}</span></h3>{items.map(item => <MistakeRow key={item.mistakeNoteId} item={item} action={action}/>)}</div>) : <div className="answerEmpty"><span>⌕</span><strong>没有符合条件的错题</strong><small>清空搜索词或取消等级筛选后查看全部记录</small></div>}</div>
       </section>}
 
       {tab === "review" && <section className="groups">{records.filter(item => new Date(item.nextReviewAt) <= new Date()).length ? records.filter(item => new Date(item.nextReviewAt) <= new Date()).map(item => <MistakeRow key={item.mistakeNoteId} item={item} action={action} review />) : <div className="answerEmpty"><span>✓</span><strong>目前没有到期错题</strong><small>继续保持，新的复习任务会自动出现</small></div>}</section>}
@@ -110,7 +114,7 @@ function App() {
 }
 
 function MistakeRow({ item, action, review }) {
-  return <article className={`mistakeRow ${item.noteAvailable ? "" : "unavailable"}`}><div className={`level level${item.level}`}>{item.level}</div><div className="mistakeInfo"><strong>{item.sourceTitle}</strong><small>{item.sourceNotebookTitle} · 下次 {new Date(item.nextReviewAt).toLocaleDateString()}{item.noteAvailable ? "" : " · 错题卡片待同步"}</small></div>{review ? <select value={item.level} onChange={event => action("reviewMistake", { mistakeNoteId: item.mistakeNoteId, level: Number(event.target.value) })}>{levelNames.map((name, index) => <option key={name} value={index}>{index}级 · {name}</option>)}</select> : <div className="rowActions"><button onClick={() => action("openSource", { mistakeNoteId: item.mistakeNoteId }, false)}>原题</button><button disabled={!item.noteAvailable} onClick={() => action("openMistake", { mistakeNoteId: item.mistakeNoteId }, false)}>错题</button></div>}</article>
+  return <article className={`mistakeRow ${item.noteAvailable ? "" : "unavailable"}`}><div className={`level level${item.level}`}>{item.level}</div><div className="mistakeInfo"><strong>{item.sourceTitle}</strong><small>{item.sourceNotebookTitle} · 下次 {new Date(item.nextReviewAt).toLocaleDateString()}{item.noteAvailable ? "" : " · 错题卡片待同步"}</small></div>{review ? <select value={item.level} onChange={event => action("reviewMistake", { mistakeNoteId: item.mistakeNoteId, level: Number(event.target.value) })}>{levelNames.map((name, index) => <option key={name} value={index}>{index}级 · {name}</option>)}</select> : <div className="rowActions"><button onClick={() => action("openSource", { mistakeNoteId: item.mistakeNoteId }, false)}>定位题目</button><button disabled={!item.noteAvailable} onClick={() => action("openMistake", { mistakeNoteId: item.mistakeNoteId }, false)}>错题卡</button></div>}</article>
 }
 
 createRoot(document.getElementById("root")).render(<App />)
