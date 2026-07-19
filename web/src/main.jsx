@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client"
 import MNBridge from "./lib/mnBridge"
 import "./styles.css"
 import "./overview.css"
+import "./overview-polish.css"
+import "./source-chart.css"
 
 const levelNames = ["完全不会", "看懂思路", "模仿做对", "查资料做对", "独立做对", "完全掌握"]
 
@@ -35,6 +37,26 @@ function categoryChoices(records, prefix) {
     if (part) counts.set(part, (counts.get(part) || 0) + 1)
   }
   return [...counts].map(([name, count]) => ({ name, count }))
+}
+
+function sourceInsights(records) {
+  const groups = new Map()
+  for (const record of records) {
+    const path = (record.categoryPath || []).slice(0, record.sourcePathTitles?.length ? 2 : 1)
+    const key = path.join("\u001f") || record.sourceNotebookId
+    const current = groups.get(key) || {
+      key,
+      path,
+      name: record.sourcePathTitles?.[0] || record.sourceNotebookTitle || "未分类来源",
+      notebook: record.sourceNotebookTitle || "未命名脑图",
+      count: 0,
+      weak: 0
+    }
+    current.count++
+    if (record.level <= 1) current.weak++
+    groups.set(key, current)
+  }
+  return [...groups.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"))
 }
 
 function App() {
@@ -134,6 +156,7 @@ function App() {
         records={data?.mistakes?.records || []}
         onBrowse={() => setTab("mistakes")}
         onOpen={recordId => { setTab("mistakes"); openDetail(recordId) }}
+        onSource={path => { setCategoryPath(path); setTab("mistakes") }}
       />}
 
       {tab === "mistakes" && <MistakeBrowser
@@ -218,7 +241,7 @@ function CategoryCascade({ records, path, setPath }) {
   </div>
 }
 
-function MistakeOverview({ records, onBrowse, onOpen }) {
+function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
   const now = Date.now()
   const due = records.filter(item => new Date(item.nextReviewAt).getTime() <= now).length
   const weak = records.filter(item => item.level <= 1).length
@@ -228,6 +251,18 @@ function MistakeOverview({ records, onBrowse, onOpen }) {
   const levelCounts = levelNames.map((_, level) => records.filter(item => item.level === level).length)
   const maxLevelCount = Math.max(1, ...levelCounts)
   const recent = [...records].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 5)
+  const sources = sourceInsights(records)
+  const sourceColors = ["#5369df", "#4b9d7c", "#d89136", "#d95b64", "#6c8fcf", "#9a70c7", "#8792a7"]
+  const topSources = sources.slice(0, 6)
+  const otherCount = sources.slice(6).reduce((sum, source) => sum + source.count, 0)
+  const chartSources = [...topSources, ...(otherCount ? [{ key: "other", name: "其他来源", notebook: `${sources.length - 6} 个父节点`, count: otherCount, weak: 0 }] : [])]
+  let sourceOffset = 0
+  const sourceGradient = chartSources.length ? chartSources.map((source, index) => {
+    const start = sourceOffset
+    sourceOffset += source.count / Math.max(1, records.length) * 100
+    return `${sourceColors[index]} ${start}% ${sourceOffset}%`
+  }).join(",") : "#e9edf5 0 100%"
+  const mastery = records.length ? Math.round(mastered / records.length * 100) : 0
   const cards = [
     ["◇", "错题总数", records.length, `${notebooks} 个脑图`],
     ["↻", "今日到期", due, due ? "建议优先复习" : "当前已清空"],
@@ -236,7 +271,12 @@ function MistakeOverview({ records, onBrowse, onOpen }) {
     ["＋", "近 7 天新增", recentCount, "持续积累"],
   ]
   return <section className="overviewPage">
-    <div className="overviewCards">{cards.map(([icon, label, value, note]) => <div className="overviewCard" key={label}><i>{icon}</i><span><small>{label}</small><strong>{value}</strong><em>{note}</em></span></div>)}</div>
+    <div className="overviewHero"><div><span className="overviewKicker">LEARNING SNAPSHOT</span><strong>错题学习概览</strong><small>{due ? `有 ${due} 道错题已经到期，建议从薄弱等级开始复习` : "当前没有到期任务，保持稳定积累"}</small></div><div className="masteryRing" style={{ "--progress": `${mastery * 3.6}deg` }}><span><strong>{mastery}%</strong><small>完全掌握</small></span></div></div>
+    <div className="overviewCards">{cards.map(([icon, label, value, note], index) => <div className={`overviewCard tone${index}`} key={label}><i>{icon}</i><span><small>{label}</small><strong>{value}</strong><em>{note}</em></span></div>)}</div>
+    <div className="overviewPanel sourcePanel"><header><div><strong>错题来源分布</strong><small>按脑图第一层父节点分析，点击条目即可筛选</small></div><b>{sources.length} 个来源</b></header>{sources.length ? <div className="sourceChart"><div className="sourceDonut" style={{ background: `conic-gradient(${sourceGradient})` }}><span><strong>{records.length}</strong><small>全部错题</small></span></div><div className="sourceBars">{chartSources.map((source, index) => {
+      const percent = Math.round(source.count / Math.max(1, records.length) * 100)
+      return <button key={source.key} disabled={!source.path} onClick={() => source.path && onSource(source.path)}><i style={{ background: sourceColors[index] }} /><span><strong>{source.name}</strong><small>{source.notebook}{source.weak ? ` · ${source.weak} 道薄弱` : ""}</small><em><b style={{ width: `${percent}%`, background: sourceColors[index] }} /></em></span><b>{source.count}<small>{percent}%</small></b></button>
+    })}</div></div> : <Empty title="暂无来源数据" text="标记错题后会根据父节点自动分析。" />}</div>
     <div className="overviewGrid">
       <div className="overviewPanel"><header><strong>掌握等级分布</strong><small>0 级最薄弱，5 级为完全掌握</small></header><div className="levelChart">{levelCounts.map((count, level) => <div className="levelRow" key={level}><span>{level}级</span><div><i className={`levelBar level${level}`} style={{ width: `${Math.max(count ? 8 : 0, count / maxLevelCount * 100)}%` }} /></div><b>{count}</b></div>)}</div></div>
       <div className="overviewPanel recentPanel"><header><strong>最近添加</strong><button onClick={onBrowse}>浏览全部 ›</button></header><div>{recent.map(item => <button className="recentItem" key={item.recordId} onClick={() => onOpen(item.recordId)}><span className={`level level${item.level}`}>{item.level}</span><span><strong>{item.sourceTitle}</strong><small>{formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small></span><b>›</b></button>)}{!recent.length && <Empty title="还没有错题" text="从卡片侧边标记第一道错题。" />}</div></div>
