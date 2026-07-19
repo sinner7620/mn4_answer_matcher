@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react"
 import { createRoot } from "react-dom/client"
 import MNBridge from "./lib/mnBridge"
 import "./styles.css"
+import "./overview.css"
 
 const levelNames = ["完全不会", "看懂思路", "模仿做对", "查资料做对", "独立做对", "完全掌握"]
 
@@ -113,6 +114,7 @@ function App() {
   }, [data, query, level, categoryPath])
 
   const entries = [
+    ["overview", "▦", "错题总览"],
     ["mistakes", "◇", "错题浏览", data?.mistakes?.records?.length || 0],
     ["review", "↻", "到期复习", data?.mistakes?.dueCount || 0],
     ["settings", "⚙", "设置"]
@@ -124,9 +126,15 @@ function App() {
         <nav className="topNav">{entries.map(([key, icon, name, count]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><span>{icon}</span><strong>{name}</strong>{count > 0 && <b>{count}</b>}</button>)}</nav>
         <div className="topTools"><small>Beta v{data?.version || "…"}</small><button className="iconButton" onClick={load} disabled={busy}>↻</button></div>
       </header>
-      <div className="pageHeading"><h1>{tab === "mistakes" ? "错题浏览" : tab === "review" ? "到期复习" : "设置"}</h1><p>{tab === "mistakes" ? "全部错题保留在原脑图中，可分类、核对答案并定位原题" : "跨脑图答案与错题工作台"}</p></div>
+      <div className="pageHeading"><h1>{tab === "overview" ? "错题总览" : tab === "mistakes" ? "错题浏览" : tab === "review" ? "到期复习" : "设置"}</h1><p>{tab === "overview" ? "掌握情况、到期复习和最近错题概览" : tab === "mistakes" ? "全部错题保留在原脑图中，可分类、核对答案并定位原题" : "跨脑图答案与错题工作台"}</p></div>
       {error && <div className="error">{error}</div>}
       {busy && <div className="loading"><i />正在读取 MarginNote 数据…</div>}
+
+      {tab === "overview" && <MistakeOverview
+        records={data?.mistakes?.records || []}
+        onBrowse={() => setTab("mistakes")}
+        onOpen={recordId => { setTab("mistakes"); openDetail(recordId) }}
+      />}
 
       {tab === "mistakes" && <MistakeBrowser
         records={records}
@@ -182,22 +190,58 @@ function MistakeBrowser(props) {
 }
 
 function CategoryCascade({ records, path, setPath }) {
-  const levels = []
-  for (let depth = 0; depth <= path.length; depth++) {
-    const prefix = path.slice(0, depth)
-    const choices = categoryChoices(records, prefix)
-    if (!choices.length) break
-    levels.push({ depth, choices })
+  const [open, setOpen] = useState(false)
+  const [cursor, setCursor] = useState(path)
+  const choices = categoryChoices(records, cursor)
+  const currentCount = records.filter(record => cursor.every((part, index) => (record.categoryPath || [])[index] === part)).length
+  function toggle() {
+    setCursor(path)
+    setOpen(value => !value)
   }
-  return <div style={{ display: "flex", gap: 5, minWidth: 0, overflowX: "auto" }}>
-    {levels.map(({ depth, choices }) => <select
-      key={depth}
-      aria-label={`第${depth + 1}级分类`}
-      style={{ flex: "0 0 138px" }}
-      value={path[depth] || "all"}
-      onChange={event => setPath(event.target.value === "all" ? path.slice(0, depth) : [...path.slice(0, depth), event.target.value])}
-    ><option value="all">{depth === 0 ? "全部分类" : "全部下级"}</option>{choices.map(item => <option value={item.name} key={item.name}>{item.name}（{item.count}）</option>)}</select>)}
+  function choose(item) {
+    const next = [...cursor, item.name]
+    setPath(next)
+    if (categoryChoices(records, next).length) setCursor(next)
+    else setOpen(false)
+  }
+  return <div className="categoryTree">
+    <button className="categoryTrigger" onClick={toggle}><span>{path.length ? path.join(" › ") : "全部分类"}</span><b>{open ? "▴" : "▾"}</b></button>
+    {open && <div className="categoryPopover">
+      <div className="categoryPopoverHead"><button disabled={!cursor.length} onClick={() => setCursor(cursor.slice(0, -1))}>‹</button><strong>{cursor.length ? cursor.join(" › ") : "选择一级分类"}</strong><button onClick={() => setOpen(false)}>×</button></div>
+      <button className="categoryAll" onClick={() => { setPath([]); setCursor([]); setOpen(false) }}>全部错题 <b>{records.length}</b></button>
+      {!!cursor.length && <button className="categoryCurrent" onClick={() => { setPath(cursor); setOpen(false) }}>查看当前分类下全部错题 <b>{currentCount}</b></button>}
+      <div className="categoryOptions">{choices.map(item => {
+        const hasChildren = categoryChoices(records, [...cursor, item.name]).length > 0
+        return <button key={item.name} onClick={() => choose(item)}><span>{item.name}</span><b>{item.count}{hasChildren ? "　›" : ""}</b></button>
+      })}{!choices.length && <small>当前分类没有下级</small>}</div>
+    </div>}
   </div>
+}
+
+function MistakeOverview({ records, onBrowse, onOpen }) {
+  const now = Date.now()
+  const due = records.filter(item => new Date(item.nextReviewAt).getTime() <= now).length
+  const weak = records.filter(item => item.level <= 1).length
+  const mastered = records.filter(item => item.level === 5).length
+  const recentCount = records.filter(item => now - new Date(item.createdAt).getTime() <= 7 * 86400000).length
+  const notebooks = new Set(records.map(item => item.sourceNotebookId)).size
+  const levelCounts = levelNames.map((_, level) => records.filter(item => item.level === level).length)
+  const maxLevelCount = Math.max(1, ...levelCounts)
+  const recent = [...records].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 5)
+  const cards = [
+    ["◇", "错题总数", records.length, `${notebooks} 个脑图`],
+    ["↻", "今日到期", due, due ? "建议优先复习" : "当前已清空"],
+    ["!", "薄弱错题", weak, "0–1 级"],
+    ["✓", "完全掌握", mastered, "5 级"],
+    ["＋", "近 7 天新增", recentCount, "持续积累"],
+  ]
+  return <section className="overviewPage">
+    <div className="overviewCards">{cards.map(([icon, label, value, note]) => <div className="overviewCard" key={label}><i>{icon}</i><span><small>{label}</small><strong>{value}</strong><em>{note}</em></span></div>)}</div>
+    <div className="overviewGrid">
+      <div className="overviewPanel"><header><strong>掌握等级分布</strong><small>0 级最薄弱，5 级为完全掌握</small></header><div className="levelChart">{levelCounts.map((count, level) => <div className="levelRow" key={level}><span>{level}级</span><div><i className={`levelBar level${level}`} style={{ width: `${Math.max(count ? 8 : 0, count / maxLevelCount * 100)}%` }} /></div><b>{count}</b></div>)}</div></div>
+      <div className="overviewPanel recentPanel"><header><strong>最近添加</strong><button onClick={onBrowse}>浏览全部 ›</button></header><div>{recent.map(item => <button className="recentItem" key={item.recordId} onClick={() => onOpen(item.recordId)}><span className={`level level${item.level}`}>{item.level}</span><span><strong>{item.sourceTitle}</strong><small>{formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small></span><b>›</b></button>)}{!recent.length && <Empty title="还没有错题" text="从卡片侧边标记第一道错题。" />}</div></div>
+    </div>
+  </section>
 }
 
 function MistakeListItem({ item, selected, onClick }) {
