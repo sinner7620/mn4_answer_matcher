@@ -1,4 +1,4 @@
-import { delay, fetch, genNSURL, MN, popup, showHUD } from "marginnote"
+import { delay, fetch, genNSURL, MN, popup, saveFile, showHUD } from "marginnote"
 import { backupBindings } from "./store"
 import { compareVersions } from "./version"
 
@@ -60,14 +60,18 @@ async function fetchNewestRelease(): Promise<GitHubRelease | undefined> {
   const response = await fetch(RELEASES_API, { headers: githubHeaders(), timeout: 20 })
   const releases = response.json()
   if (!Array.isArray(releases)) throw new Error("GitHub Releases 返回格式异常")
+  const currentUsesPrereleaseChannel = __APP_VERSION__.includes("-")
   return releases
-    .filter((release: GitHubRelease) => !release.draft && releaseVersion(release))
+    .filter((release: GitHubRelease) =>
+      !release.draft && releaseVersion(release) &&
+      (currentUsesPrereleaseChannel || !release.prerelease)
+    )
     .sort((a: GitHubRelease, b: GitHubRelease) =>
       compareVersions(releaseVersion(b), releaseVersion(a))
     )[0]
 }
 
-async function downloadAndInstall(release: GitHubRelease, asset: ReleaseAsset): Promise<void> {
+async function downloadUpdate(release: GitHubRelease, asset: ReleaseAsset): Promise<string> {
   const url = asset.browser_download_url
   const tempPath = MN.app.tempPath
   if (!url || !tempPath) throw new Error("更新包地址或临时目录不可用")
@@ -81,7 +85,11 @@ async function downloadAndInstall(release: GitHubRelease, asset: ReleaseAsset): 
   if (!response.data?.length() || !response.data.writeToFileAtomically(path, true)) {
     throw new Error("更新包下载或写入失败")
   }
+  return path
+}
 
+async function downloadAndInstall(release: GitHubRelease, asset: ReleaseAsset): Promise<void> {
+  const path = await downloadUpdate(release, asset)
   // Persist a second copy outside the add-on-local storage before MarginNote replaces the bundle.
   backupBindings()
   showHUD("更新包已下载，正在交给 MarginNote 安装…", 4)
@@ -95,6 +103,13 @@ async function downloadAndInstall(release: GitHubRelease, asset: ReleaseAsset): 
     fileURL = undefined
   }
   MN.app.openURL(fileURL ?? genNSURL(`file://${path}`, true))
+}
+
+async function downloadAndSave(release: GitHubRelease, asset: ReleaseAsset): Promise<void> {
+  const path = await downloadUpdate(release, asset)
+  backupBindings()
+  showHUD("更新包已下载，请选择保存位置；之后点开 .mnaddon 文件手动安装", 5)
+  saveFile(path, "public.data")
 }
 
 export async function checkForUpdates(interactive = true): Promise<void> {
@@ -119,11 +134,12 @@ export async function checkForUpdates(interactive = true): Promise<void> {
     const result = await popup({
       title: `发现${channel} v${version}`,
       message: `当前版本：v${__APP_VERSION__}\n\n${notes}`,
-      buttons: ["稍后", "下载并安装"],
+      buttons: ["稍后", "下载并安装", "下载并保存（手动安装）"],
       canCancel: true,
       multiLine: true
     })
     if (result.buttonIndex === 1) await downloadAndInstall(release, asset)
+    if (result.buttonIndex === 2) await downloadAndSave(release, asset)
   } catch (error) {
     MN.error(error)
     if (interactive) showHUD(`检查更新失败：${String(error)}`, 5)

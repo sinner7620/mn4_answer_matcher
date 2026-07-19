@@ -1,6 +1,7 @@
 import { MN, NodeNote, showHUD } from "marginnote"
 import {
   answerWorkbenchData,
+  bindAnswerNotebook,
   eventObservers,
   handlers,
   lifecycle,
@@ -10,16 +11,21 @@ import {
   onCloseAnswerCard,
   onMistakeLinkToolbarClick,
   onMistakeToolbarClick,
-  openMenu
+  onMistakeLevelPickerAction,
+  onNotebookPickerAction,
+  openMenu,
+  refreshCurrentIndex,
+  unbindCurrent
 } from "./plugin"
 import {
-  bindMistakeNotebook,
   markQuestionAsMistake,
+  mistakeDetailById,
   mistakeWorkbenchData,
-  openMistakeById,
   openSourceByMistakeId,
+  removeMistakeById,
   repairAndOrganizeMistakes,
-  reviewMistakeById
+  reviewMistakeById,
+  setMistakeCategoryById
 } from "./mistake-manager"
 import { checkForUpdates } from "./updater"
 
@@ -33,27 +39,27 @@ function selectedNode(): NodeNote | undefined {
 
 async function bridge(command: string, payload: any): Promise<any> {
   if (command === "dashboard") {
-    let answer
-    try {
-      answer = answerWorkbenchData()
-    } catch (error) {
-      answer = { status: "not-found", questionTitle: "尚未选择题目", sourceNotebookTitle: "", candidates: [], message: String(error) }
-    }
-    return { version: __APP_VERSION__, answer, mistakes: mistakeWorkbenchData() }
+    return { version: __APP_VERSION__, mistakes: mistakeWorkbenchData() }
   }
   if (command === "answer") return answerWorkbenchData()
   if (command === "mistakes") return mistakeWorkbenchData()
   if (command === "markMistake") {
-    const node = selectedNode()
-    const notebookId = MN.currnetNotebookId
-    if (!node || !notebookId) throw new Error("请先选中一张题目卡片")
-    return markQuestionAsMistake(node, notebookId)
+    return onMistakeToolbarClick()
   }
-  if (command === "openMistake") return openMistakeById(String(payload?.mistakeNoteId ?? ""))
-  if (command === "openSource") return openSourceByMistakeId(String(payload?.mistakeNoteId ?? ""))
-  if (command === "reviewMistake") return reviewMistakeById(String(payload?.mistakeNoteId ?? ""), Number(payload?.level) as any)
+  if (command === "findCurrentAnswer") return onAnswerToolbarClick()
+  if (command === "bindAnswerNotebook") return bindAnswerNotebook()
+  if (command === "refreshAnswerIndex") return refreshCurrentIndex()
+  if (command === "unbindAnswerNotebook") return unbindCurrent()
+  if (command === "openCurrentMistakeSource") return onMistakeLinkToolbarClick()
+  if (command === "mistakeDetail") return mistakeDetailById(String(payload?.recordId ?? ""))
+  if (command === "openSource") return openSourceByMistakeId(String(payload?.recordId ?? ""))
+  if (command === "reviewMistake") return reviewMistakeById(String(payload?.recordId ?? ""), Number(payload?.level) as any)
+  if (command === "setMistakeCategory") return setMistakeCategoryById(String(payload?.recordId ?? ""), String(payload?.category ?? ""))
+  if (command === "removeMistake") {
+    await removeMistakeById(String(payload?.recordId ?? ""))
+    return { removed: true }
+  }
   if (command === "repairMistakes") return repairAndOrganizeMistakes()
-  if (command === "bindMistakeNotebook") return bindMistakeNotebook()
   if (command === "checkUpdates") return checkForUpdates(true)
   if (command === "legacyMenu") return openMenu()
   if (command === "notify") return showHUD(String(payload?.message ?? ""), 3)
@@ -68,7 +74,9 @@ async function bridge(command: string, payload: any): Promise<any> {
   instanceMethods: {
     onAnswerToolbarClick,
     onMistakeToolbarClick,
+    onMistakeLevelPickerAction,
     onMistakeLinkToolbarClick,
+    onNotebookPickerAction,
     onCloseAnswerCard,
     onAnswerCardPan,
     onAnswerCardResize,

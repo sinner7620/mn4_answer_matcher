@@ -1,10 +1,11 @@
 var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
-  var FRAME_KEY = "marginnote.extension.mn4-answer-matcher.rails.frame";
+  // v3 resets the oversized full-screen frame saved by earlier iPad betas.
+  var FRAME_KEY = "marginnote.extension.mn4-answer-matcher.rails.frame.v3";
   var OPEN_KEY = "marginnote.extension.mn4-answer-matcher.rails.open";
   var SCHEME = "mnaddon";
   var TITLE_HEIGHT = 38;
-  var MIN_WIDTH = 520;
-  var MIN_HEIGHT = 420;
+  var MIN_WIDTH = 460;
+  var MIN_HEIGHT = 360;
 
   function responseScript(response) {
     var raw = JSON.stringify(response).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -30,11 +31,11 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   function defaultFrame(controller) {
     var study = Application.sharedInstance().studyController(controller.addon.window);
     var bounds = study.view.bounds;
-    var width = Math.max(MIN_WIDTH, Math.min(980, bounds.width - 32));
-    var height = Math.max(MIN_HEIGHT, Math.min(720, bounds.height - 48));
+    var width = Math.max(MIN_WIDTH, Math.min(760, bounds.width * 0.72));
+    var height = Math.max(MIN_HEIGHT, Math.min(680, bounds.height * 0.76));
     return {
-      x: Math.max(16, (bounds.width - width) / 2),
-      y: Math.max(16, (bounds.height - height) / 2),
+      x: 16,
+      y: 16,
       width: width,
       height: height
     };
@@ -53,6 +54,14 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
 
   function saveFrame(controller) {
     NSUserDefaults.standardUserDefaults().setObjectForKey(controller.view.frame, FRAME_KEY);
+  }
+
+  function resetFrame(controller) {
+    if (!controller || !controller.view) return { reset: false };
+    var frame = defaultFrame(controller);
+    controller.view.frame = frame;
+    saveFrame(controller);
+    return { reset: true, frame: frame };
   }
 
   function closePanel(controller, remember) {
@@ -81,14 +90,6 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     controller.titleBar.backgroundColor = UIColor.colorWithHexString("#F7F8FB");
     controller.titleBar.autoresizingMask = 1 << 1;
     controller.view.addSubview(controller.titleBar);
-
-    var title = new UILabel({ x: 48, y: 0, width: frame.width - 96, height: TITLE_HEIGHT });
-    title.text = "跨脑图答案与错题工作台";
-    title.textAlignment = 1;
-    title.font = UIFont.boldSystemFontOfSize(14);
-    title.textColor = UIColor.colorWithHexString("#27324A");
-    title.autoresizingMask = 1 << 1;
-    controller.titleBar.addSubview(title);
 
     var close = UIButton.buttonWithType(0);
     close.frame = { x: 6, y: 3, width: 34, height: 32 };
@@ -161,7 +162,12 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
         var message;
         try {
           message = decodeMessage(url);
-          var context = { controller: self, addon: self.addon, closePanel: closePanel };
+          var context = {
+            controller: self,
+            addon: self.addon,
+            closePanel: closePanel,
+            resetPanelFrame: resetFrame
+          };
           var result = __MNAM_WEB_BRIDGE_GLOBAL__.dispatch(context, message.command, message.payload);
           if (result && typeof result.then === "function") {
             result.then(function (payload) { sendResponse(webView, message.requestId, payload, null); })
@@ -202,6 +208,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   return {
     createController: createController,
     showPanel: showPanel,
+    resetFrame: resetFrame,
     hidePanel: closePanel,
     destroyPanel: destroyPanel,
     shouldRestorePanel: function () { return NSUserDefaults.standardUserDefaults().objectForKey(OPEN_KEY) === true; },

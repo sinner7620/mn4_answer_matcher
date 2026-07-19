@@ -2,7 +2,7 @@ import { MN } from "marginnote"
 
 const BUTTON_WIDTH = 96
 const BUTTON_HEIGHT = 34
-const TOOLBAR_HEIGHT = BUTTON_HEIGHT * 3 + 12
+const TOOLBAR_HEIGHT = BUTTON_HEIGHT * 2 + 6
 
 function toolbarButton(title: string, color: string, selector: string): UIButton {
   const button = UIButton.buttonWithType(0)
@@ -21,6 +21,7 @@ function toolbarButton(title: string, color: string, selector: string): UIButton
 }
 
 export function createAnswerToolbar(): UIView {
+  destroyAnswerToolbar()
   const toolbar = new UIView({ x: 0, y: 0, width: BUTTON_WIDTH, height: TOOLBAR_HEIGHT })
   toolbar.backgroundColor = UIColor.clearColor()
 
@@ -28,17 +29,12 @@ export function createAnswerToolbar(): UIView {
   answerButton.frame = { x: 0, y: 0, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
   toolbar.addSubview(answerButton)
 
-  const mistakeButton = toolbarButton("错题分级", "#D97706", "onMistakeToolbarClick:")
+  const mistakeButton = toolbarButton("标记错题", "#D97706", "onMistakeToolbarClick:")
   mistakeButton.frame = { x: 0, y: BUTTON_HEIGHT + 6, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
   toolbar.addSubview(mistakeButton)
 
-  const linkButton = toolbarButton("原题 / 错题", "#0F766E", "onMistakeLinkToolbarClick:")
-  linkButton.frame = { x: 0, y: (BUTTON_HEIGHT + 6) * 2, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
-  toolbar.addSubview(linkButton)
-
   self.answerToolbarButton = answerButton
   self.mistakeToolbarButton = mistakeButton
-  self.mistakeLinkToolbarButton = linkButton
   toolbar.hidden = true
   return toolbar
 }
@@ -88,4 +84,12 @@ export function showAnswerToolbar(winRect: string): void {
 
 export function hideAnswerToolbar(): void {
   if (self.answerToolbar) self.answerToolbar.hidden = true
+}
+
+export function destroyAnswerToolbar(): void {
+  const toolbar = self.answerToolbar
+  if (toolbar?.superview) toolbar.removeFromSuperview()
+  self.answerToolbar = undefined
+  self.answerToolbarButton = undefined
+  self.mistakeToolbarButton = undefined
 }

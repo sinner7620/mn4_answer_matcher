@@ -4,6 +4,9 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
       context.closePanel(context.controller);
       return { closed: true };
     }
+    if (command === "resetPanelFrame") {
+      return context.resetPanelFrame(context.controller);
+    }
     return __MN_ANSWER_CORE_GLOBAL__.bridge(command, payload);
   }
 

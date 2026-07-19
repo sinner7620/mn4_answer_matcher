@@ -11,7 +11,7 @@ import {
   showHUD
 } from "marginnote"
 import { pathMatchScore } from "./domain"
-import { createAnswerToolbar, hideAnswerToolbar, showAnswerToolbar } from "./floating-toolbar"
+import { createAnswerToolbar, destroyAnswerToolbar, hideAnswerToolbar, showAnswerToolbar } from "./floating-toolbar"
 import {
   answerCardHtml,
   answerText,
@@ -28,10 +28,18 @@ import {
   showAnswerCard
 } from "./answer-card-view"
 import { checkForUpdates, scheduleAutomaticUpdateCheck } from "./updater"
+import { chooseNotebook, closeNotebookPicker, onNotebookPickerAction } from "./notebook-picker"
+import { completePendingNoteNavigation } from "./note-navigation"
+import {
+  chooseMistakeLevel,
+  closeMistakeLevelPicker,
+  onMistakeLevelPickerAction
+} from "./level-picker"
 import {
   bindMistakeNotebook,
   markQuestionAsMistake,
   mistakeAnswerContext,
+  mistakeRecordForSourceQuestion,
   openLinkedMistakeOrSource,
   openMistakeDirectory,
   openMistakeRecord,
@@ -61,7 +69,7 @@ function selectedQuestion(): NodeNote | undefined {
   return focus ? new NodeNote(focus) : undefined
 }
 
-async function bindAnswerNotebook(targetQuestionNotebookId?: string): Promise<void> {
+export async function bindAnswerNotebook(targetQuestionNotebookId?: string): Promise<void> {
   const questionNotebookId = targetQuestionNotebookId ?? currentNotebookId()
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
 
@@ -70,13 +78,12 @@ async function bindAnswerNotebook(targetQuestionNotebookId?: string): Promise<vo
   )
   if (!notebooks.length) return showHUD("没有可绑定的其他脑图")
 
-  const options = notebooks.map((item, index) =>
-    `${index + 1}. ${item.title?.trim() || "未命名脑图"} · ${item.topicId!.slice(-6)}`
-  )
-  const result = await select(options, "绑定答案脑图", "请选择与当前题目脑图对应的答案脑图", true)
-  if (result.index < 0) return
-
-  const answerNotebookId = notebooks[result.index].topicId!
+  const selected = await chooseNotebook(notebooks.map(item => ({
+    id: item.topicId!,
+    title: item.title?.trim() || "未命名脑图"
+  })))
+  if (!selected) return
+  const answerNotebookId = selected.id
   const bindings = loadBindings()
   bindings[questionNotebookId] = answerNotebookId
   saveBindings(bindings)
@@ -122,6 +129,8 @@ export function onCloseAnswerCard(): void {
 }
 
 export { onAnswerCardPan, onAnswerCardResize }
+export { onNotebookPickerAction }
+export { onMistakeLevelPickerAction }
 
 export async function findCurrentAnswer(): Promise<void> {
   const questionNotebookId = currentNotebookId()
@@ -195,17 +204,12 @@ export async function onMistakeToolbarClick(): Promise<void> {
     const notebookId = currentNotebookId()
     const question = selectedQuestion()
     if (!notebookId || !question) return showHUD("请先选中一张题目卡片")
-    const record = await markQuestionAsMistake(question, notebookId)
+    const previous = mistakeRecordForSourceQuestion(question, notebookId)
+    const level = await chooseMistakeLevel(previous?.level)
+    if (level === undefined) return
+    const record = await markQuestionAsMistake(question, notebookId, level)
     if (!record) return
     notifyWorkbenchDataChanged()
-    const next = await popup({
-      title: "错题已记录",
-      message: "可以立即核对答案，或跳转到总错题脑图检查摘录结果。",
-      buttons: ["完成", "核对答案", "打开错题"],
-      canCancel: true
-    })
-    if (next.buttonIndex === 1) await runSafely(findCurrentAnswer)
-    else if (next.buttonIndex === 2) await openMistakeRecord(record)
   } catch (error) {
     MN.error(error)
     showHUD(`错题摘录失败：${String(error)}`, 5)
@@ -295,7 +299,7 @@ export async function onMistakeLinkToolbarClick(): Promise<void> {
   }
 }
 
-async function refreshCurrentIndex(): Promise<void> {
+export async function refreshCurrentIndex(): Promise<void> {
   const questionNotebookId = currentNotebookId()
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
   const answerNotebookId = loadBindings()[questionNotebookId]
@@ -314,7 +318,7 @@ async function refreshCurrentIndex(): Promise<void> {
   showHUD(`答案索引已刷新：${result.indexedCards} 张卡片${warning}`, 4)
 }
 
-async function unbindCurrent(): Promise<void> {
+export async function unbindCurrent(): Promise<void> {
   const questionNotebookId = currentNotebookId()
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
   const bindings = loadBindings()
@@ -344,10 +348,9 @@ export async function openMenu(): Promise<void> {
       "查找当前卡片答案",
       "错题分级并摘录",
       "错题统计与到期复习",
-      "错题分类目录",
-      "打开错题 / 返回原题",
-      "修复并整理错题记录",
-      "绑定/更换总错题脑图",
+      "打开错题浏览窗口",
+      "定位当前错题原题",
+      "刷新错题分类索引",
       "绑定/更换答案脑图",
       "刷新答案索引",
       "检查插件更新",
@@ -360,24 +363,30 @@ export async function openMenu(): Promise<void> {
   if (result.index === 0) await runSafely(findCurrentAnswer)
   else if (result.index === 1) await onMistakeToolbarClick()
   else if (result.index === 2) await openMistakeReviewCenter()
-  else if (result.index === 3) await openMistakeDirectory()
+  else if (result.index === 3) {
+    ;(self as any).toggleWebPanel?.()
+  }
   else if (result.index === 4) {
     const question = selectedQuestion()
     if (!question) showHUD("请先选中一张题目或错题卡片")
     else await openLinkedMistakeOrSource(question, questionNotebookId)
   }
   else if (result.index === 5) await repairAndOrganizeMistakes()
-  else if (result.index === 6) await bindMistakeNotebook()
-  else if (result.index === 7) await runSafely(bindAnswerNotebook)
-  else if (result.index === 8) await runSafely(refreshCurrentIndex)
-  else if (result.index === 9) await checkForUpdates(true)
-  else if (result.index === 10) await runSafely(unbindCurrent)
+  else if (result.index === 6) await runSafely(bindAnswerNotebook)
+  else if (result.index === 7) await runSafely(refreshCurrentIndex)
+  else if (result.index === 8) await checkForUpdates(true)
+  else if (result.index === 9) await runSafely(unbindCurrent)
 }
 
 export const lifecycle = defineLifecycleHandlers({
   instanceMethods: {
     sceneWillConnect() {
-      self.addon = { key: "mn4-answer-matcher", title: "答案匹配" }
+      self.addon = {
+        key: __APP_VERSION__.includes("-beta")
+          ? "mn4-answer-matcher-beta"
+          : "mn4-answer-matcher",
+        title: __APP_VERSION__.includes("-beta") ? "答案匹配 Beta" : "答案匹配"
+      }
       self.lastClickedNote = undefined
       self.answerToolbar = createAnswerToolbar()
       self.answerToolbarShownAt = 0
@@ -390,17 +399,23 @@ export const lifecycle = defineLifecycleHandlers({
     notebookWillOpen(notebookId: string) {
       eventObservers.remove()
       eventObservers.add()
+      void completePendingNoteNavigation(notebookId)
     },
     notebookWillClose() {
       eventObservers.remove()
       self.lastClickedNote = undefined
       hideAnswerToolbar()
       closeAnswerCard()
+      closeNotebookPicker()
+      closeMistakeLevelPicker()
     },
     sceneDidDisconnect() {
       eventObservers.remove()
+      destroyAnswerToolbar()
       clearIndex()
       closeAnswerCard()
+      closeNotebookPicker()
+      closeMistakeLevelPicker()
       stopMistakeReminderTimer()
     }
   },
@@ -410,6 +425,7 @@ export const lifecycle = defineLifecycleHandlers({
       scheduleMistakeReviewReminder()
     },
     addonWillDisconnect() {
+      destroyAnswerToolbar()
       clearIndex()
     }
   }
