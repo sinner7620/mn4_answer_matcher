@@ -10,16 +10,18 @@ import {
   onCloseAnswerCard,
   onMistakeLinkToolbarClick,
   onMistakeToolbarClick,
+  onNotebookPickerAction,
   openMenu
 } from "./plugin"
 import {
-  bindMistakeNotebook,
   markQuestionAsMistake,
+  mistakeDetailById,
   mistakeWorkbenchData,
-  openMistakeById,
   openSourceByMistakeId,
+  removeMistakeById,
   repairAndOrganizeMistakes,
-  reviewMistakeById
+  reviewMistakeById,
+  setMistakeCategoryById
 } from "./mistake-manager"
 import { checkForUpdates } from "./updater"
 
@@ -49,11 +51,12 @@ async function bridge(command: string, payload: any): Promise<any> {
     if (!node || !notebookId) throw new Error("请先选中一张题目卡片")
     return markQuestionAsMistake(node, notebookId)
   }
-  if (command === "openMistake") return openMistakeById(String(payload?.mistakeNoteId ?? ""))
-  if (command === "openSource") return openSourceByMistakeId(String(payload?.mistakeNoteId ?? ""))
-  if (command === "reviewMistake") return reviewMistakeById(String(payload?.mistakeNoteId ?? ""), Number(payload?.level) as any)
+  if (command === "mistakeDetail") return mistakeDetailById(String(payload?.recordId ?? ""))
+  if (command === "openSource") return openSourceByMistakeId(String(payload?.recordId ?? ""))
+  if (command === "reviewMistake") return reviewMistakeById(String(payload?.recordId ?? ""), Number(payload?.level) as any)
+  if (command === "setMistakeCategory") return setMistakeCategoryById(String(payload?.recordId ?? ""), String(payload?.category ?? ""))
+  if (command === "removeMistake") return removeMistakeById(String(payload?.recordId ?? ""))
   if (command === "repairMistakes") return repairAndOrganizeMistakes()
-  if (command === "bindMistakeNotebook") return bindMistakeNotebook()
   if (command === "checkUpdates") return checkForUpdates(true)
   if (command === "legacyMenu") return openMenu()
   if (command === "notify") return showHUD(String(payload?.message ?? ""), 3)
@@ -69,6 +72,7 @@ async function bridge(command: string, payload: any): Promise<any> {
     onAnswerToolbarClick,
     onMistakeToolbarClick,
     onMistakeLinkToolbarClick,
+    onNotebookPickerAction,
     onCloseAnswerCard,
     onAnswerCardPan,
     onAnswerCardResize,

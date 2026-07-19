@@ -46,10 +46,7 @@ function drawingBlock(drawing: unknown, resolveDrawing: DrawingResolver): string
 function excerptBlock(note: any, resolveMedia: MediaResolver): string {
   const excerptText = textOf(note?.excerptText)
   const image = imageBlock(note?.excerptPic?.paint, resolveMedia)
-  if (image) {
-    const ocr = excerptText ? `<div class="ocr">${escapeHtml(excerptText)}</div>` : ""
-    return `${image}${ocr}`
-  }
+  if (image) return image
   return excerptText ? `<div class="text-block">${escapeHtml(excerptText)}</div>` : ""
 }
 
@@ -90,7 +87,9 @@ function noteBody(
         : drawingBlock(comment?.q_hpic?.drawing, resolveDrawing)
       const mergedText = textOf(comment?.q_htext)
       if (mergedImage) mergedBlocks.push(mergedImage)
-      if (mergedText) mergedBlocks.push(`<div class="merged-text">${escapeHtml(mergedText)}</div>`)
+      if (!mergedImage && mergedText) {
+        mergedBlocks.push(`<div class="text-block">${escapeHtml(mergedText)}</div>`)
+      }
 
       // Older cards may not carry q_htext/q_hpic. Only then fall back to resolving noteid.
       if (!mergedBlocks.length) {
@@ -100,13 +99,7 @@ function noteBody(
           if (linkedBody) mergedBlocks.push(linkedBody)
         }
       }
-      if (mergedBlocks.length) {
-        blocks.push(
-          `<section class="merged"><div class="merged-title">合并摘录</div>${mergedBlocks.join(
-            ""
-          )}</section>`
-        )
-      }
+      if (mergedBlocks.length) blocks.push(mergedBlocks.join(""))
     }
   }
   return blocks.join("")
@@ -138,8 +131,8 @@ export function renderCardHtml(
   return `<!doctype html>
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
 <style>
-:root{color-scheme:light dark}*{box-sizing:border-box}html,body{margin:0;padding:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#202124}body{padding:0}.card{min-height:100vh;background:#fff;padding:54px 22px 34px}.eyebrow{font-size:12px;color:#6b7280;margin-bottom:6px}.card h1{font-size:22px;line-height:1.35;margin:0 44px 18px 0}.text-block,.html-block{font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin:12px 0;padding:12px 14px;background:#f5f7fb;border-radius:9px}.html-block{white-space:normal}.merged{font-size:16px;line-height:1.7;word-break:break-word;margin:14px 0;padding:12px 14px;background:#f5f7fb;border-left:4px solid #4f6bed;border-radius:9px}.merged .text-block,.merged .html-block{padding:8px 0;margin:8px 0;background:transparent}.merged-title{font-size:13px;font-weight:600;color:#4f6bed;margin-bottom:8px}.merged-text{white-space:pre-wrap;margin:8px 0}.ocr{font-size:13px;line-height:1.55;color:#6b7280;margin:8px 4px 16px;white-space:pre-wrap}figure{margin:14px 0;text-align:center}img,canvas[data-drawing]{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}canvas[data-drawing]{width:100%;background:#fff}.missing-image{padding:28px;text-align:center;color:#9b1c1c;background:#fff1f1;border-radius:8px}.child{margin-top:20px;padding-top:16px;border-top:1px solid #d9dde7}.child h2{font-size:17px;margin:0 0 10px}
-@media(prefers-color-scheme:dark){html,body{color:#f3f4f6}.card{background:#202124}.text-block,.html-block,.merged{background:#303236}.eyebrow,.ocr{color:#aeb4bf}.child{border-color:#45484f}}
+:root{color-scheme:light dark}*{box-sizing:border-box}html,body{margin:0;padding:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#202124}body{padding:0}.card{min-height:100vh;background:#fff;padding:54px 22px 34px}.eyebrow{font-size:12px;color:#6b7280;margin-bottom:6px}.card h1{font-size:22px;line-height:1.35;margin:0 44px 18px 0}.text-block,.html-block{font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin:12px 0;padding:12px 14px;background:#f5f7fb;border-radius:9px}.html-block{white-space:normal}figure{margin:14px 0;text-align:center}img,canvas[data-drawing]{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}canvas[data-drawing]{width:100%;background:#fff}.missing-image{padding:28px;text-align:center;color:#9b1c1c;background:#fff1f1;border-radius:8px}.child{margin-top:20px;padding-top:16px;border-top:1px solid #d9dde7}.child h2{font-size:17px;margin:0 0 10px}
+@media(prefers-color-scheme:dark){html,body{color:#f3f4f6}.card{background:#202124}.text-block,.html-block{background:#303236}.eyebrow{color:#aeb4bf}.child{border-color:#45484f}}
 </style></head><body><article class="card"><div class="eyebrow">${escapeHtml(
     questionTitle
   )}</div><h1>${escapeHtml(answerTitle)}</h1>${main}${children}</article><script>${pkDrawingRendererScript}</script></body></html>`

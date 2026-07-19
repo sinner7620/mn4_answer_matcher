@@ -28,11 +28,11 @@ export function createAnswerToolbar(): UIView {
   answerButton.frame = { x: 0, y: 0, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
   toolbar.addSubview(answerButton)
 
-  const mistakeButton = toolbarButton("错题分级", "#D97706", "onMistakeToolbarClick:")
+  const mistakeButton = toolbarButton("标记错题", "#D97706", "onMistakeToolbarClick:")
   mistakeButton.frame = { x: 0, y: BUTTON_HEIGHT + 6, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
   toolbar.addSubview(mistakeButton)
 
-  const linkButton = toolbarButton("原题 / 错题", "#0F766E", "onMistakeLinkToolbarClick:")
+  const linkButton = toolbarButton("错题浏览", "#0F766E", "toggleWebPanel:")
   linkButton.frame = { x: 0, y: (BUTTON_HEIGHT + 6) * 2, width: BUTTON_WIDTH, height: BUTTON_HEIGHT }
   toolbar.addSubview(linkButton)
 
