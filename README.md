@@ -4,7 +4,7 @@
 
 ## 安装
 
-本地测试包为 `dist/mn4-answer-matcher-beta-v2.2.0-beta.local.7.mnaddon`。该版本使用独立的 beta `addonid`，不会替换稳定版插件，也不会创建 GitHub Release。
+Beta 安装包为 `dist/mn4-answer-matcher-v2.2.0-beta.1.mnaddon`。该版本使用独立的 beta `addonid`，不会替换稳定版插件。
 
 插件每 12 小时自动检查一次 [GitHub Releases](https://github.com/sinner7620/mn4_answer_matcher/releases)，发现正式版或测试版后可直接下载并交给 MarginNote 覆盖安装；也可从插件菜单选择“检查插件更新”。覆盖升级会保留原有脑图绑定记录，并在安装前额外写入恢复备份。
 

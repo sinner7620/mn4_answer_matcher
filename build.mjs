@@ -14,6 +14,7 @@ if (!repository || !/^[\w.-]+\/[\w.-]+$/.test(repository)) {
 const distRoot = path.join(root, "dist")
 const addonRoot = path.join(distRoot, "mn4-answer-matcher")
 const webDist = path.join(root, "web-dist")
+const betaChannel = pkg.version.includes("-beta")
 const localBeta = pkg.version.includes("beta.local")
 const archive = path.join(
   distRoot,
@@ -61,11 +62,11 @@ await cp(webDist, path.join(addonRoot, "web-dist"), { recursive: true })
 await copyFile(path.join(root, "assets", "logo.png"), path.join(addonRoot, "logo.png"))
 
 const manifest = {
-  addonid: localBeta
+  addonid: betaChannel
     ? "marginnote.extension.mn4-answer-matcher.beta"
     : "marginnote.extension.mn4-answer-matcher",
   author: "MN Answer Matcher Contributors",
-  title: localBeta ? "跨脑图卡片匹配 Beta" : "跨脑图卡片匹配",
+  title: betaChannel ? "跨脑图卡片匹配 Beta" : "跨脑图卡片匹配",
   version: pkg.version,
   marginnote_version_min: "4.0.0",
   cert_key: ""

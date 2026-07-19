@@ -382,10 +382,10 @@ export const lifecycle = defineLifecycleHandlers({
   instanceMethods: {
     sceneWillConnect() {
       self.addon = {
-        key: __APP_VERSION__.includes("beta.local")
+        key: __APP_VERSION__.includes("-beta")
           ? "mn4-answer-matcher-beta"
           : "mn4-answer-matcher",
-        title: __APP_VERSION__.includes("beta.local") ? "答案匹配 Beta" : "答案匹配"
+        title: __APP_VERSION__.includes("-beta") ? "答案匹配 Beta" : "答案匹配"
       }
       self.lastClickedNote = undefined
       self.answerToolbar = createAnswerToolbar()
