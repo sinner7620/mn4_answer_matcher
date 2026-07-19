@@ -197,8 +197,14 @@ export async function removeMistakeById(recordId: string): Promise<void> {
   if (!record) return
   removeMistakeRecord(state, recordId)
   saveMistakeState(state)
-  undoGroupingWithRefresh(() => removeSourceTags(record))
-  persistSource(record.sourceNotebookId)
+  try {
+    undoGroupingWithRefresh(() => removeSourceTags(record))
+    persistSource(record.sourceNotebookId)
+  } catch (error) {
+    // The mistake record is authoritative. A stale source tag must not make
+    // cancellation appear to fail or restore the removed record in the UI.
+    MN.error(error)
+  }
 }
 
 export interface MistakeWorkbenchRecord extends MistakeRecord {

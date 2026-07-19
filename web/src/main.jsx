@@ -10,6 +10,32 @@ function normalizeSearch(value) {
     .replace(/[\s，,。.;；:：、/\\|()[\]【】{}]+/g, "")
 }
 
+function formatDate(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "未知"
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+}
+
+function reviewCountdown(value) {
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return "复习时间未知"
+  const days = Math.ceil((time - Date.now()) / 86400000)
+  if (days <= 0) return "已到期"
+  return `下次复习剩余 ${days} 天`
+}
+
+function categoryChoices(records, prefix) {
+  const depth = prefix.length
+  const counts = new Map()
+  for (const record of records) {
+    const path = record.categoryPath || []
+    if (!prefix.every((part, index) => path[index] === part)) continue
+    const part = path[depth]
+    if (part) counts.set(part, (counts.get(part) || 0) + 1)
+  }
+  return [...counts].map(([name, count]) => ({ name, count }))
+}
+
 function App() {
   const [tab, setTab] = useState("mistakes")
   const [data, setData] = useState(null)
@@ -17,7 +43,7 @@ function App() {
   const [error, setError] = useState("")
   const [query, setQuery] = useState("")
   const [level, setLevel] = useState("all")
-  const [category, setCategory] = useState("all")
+  const [categoryPath, setCategoryPath] = useState([])
   const [selectedId, setSelectedId] = useState("")
   const [detail, setDetail] = useState(null)
 
@@ -81,10 +107,10 @@ function App() {
     const needle = normalizeSearch(query)
     return (data?.mistakes?.records || []).filter(item =>
       (level === "all" || String(item.level) === level) &&
-      (category === "all" || (item.categoryKeys || []).includes(category)) &&
+      (!categoryPath.length || categoryPath.every((part, index) => (item.categoryPath || [])[index] === part)) &&
       (!needle || normalizeSearch(`${item.sourceTitle} ${item.sourceNotebookTitle} ${item.categoryLabel} ${(item.sourcePathTitles || []).join(" ")} ${item.manualCategory || ""}`).includes(needle))
     )
-  }, [data, query, level, category])
+  }, [data, query, level, categoryPath])
 
   const entries = [
     ["mistakes", "◇", "错题浏览", data?.mistakes?.records?.length || 0],
@@ -108,12 +134,13 @@ function App() {
         categories={data?.mistakes?.categories || []}
         query={query} setQuery={setQuery}
         level={level} setLevel={setLevel}
-        category={category} setCategory={setCategory}
+        categoryPath={categoryPath} setCategoryPath={setCategoryPath}
         selectedId={selectedId}
         detail={detail}
         openDetail={openDetail}
         action={action}
         reloadDetail={() => selectedId && openDetail(selectedId)}
+        onRemoved={() => { setSelectedId(""); setDetail(null) }}
       />}
 
       {tab === "review" && <section className="reviewList">{(data?.mistakes?.records || []).filter(item => item.noteAvailable && new Date(item.nextReviewAt) <= new Date()).map(item => <MistakeListItem key={item.recordId} item={item} selected={false} onClick={() => { setTab("mistakes"); openDetail(item.recordId) }} />)}{!data?.mistakes?.dueCount && <Empty title="目前没有到期错题" text="新的复习任务会按掌握等级自动出现。" />}</section>}
@@ -139,44 +166,65 @@ function App() {
 }
 
 function MistakeBrowser(props) {
-  const { records, allRecords, categories, selectedId, detail, openDetail, action, reloadDetail } = props
+  const { records, allRecords, selectedId, detail, openDetail, action, reloadDetail, onRemoved } = props
   return <section className="mistakeSection">
     <div className="filterBar">
       <input value={props.query} onChange={event => props.setQuery(event.target.value)} placeholder="搜索题名、脑图、章节或分类" />
-      <select value={props.category} onChange={event => props.setCategory(event.target.value)}><option value="all">全部分类</option>{categories.map(item => <option value={item.key} key={item.key}>{`${"　".repeat(item.depth || 0)}${item.name}（${item.count}）`}</option>)}</select>
+      <CategoryCascade records={allRecords} path={props.categoryPath} setPath={props.setCategoryPath} />
       <select value={props.level} onChange={event => props.setLevel(event.target.value)}><option value="all">全部等级</option>{levelNames.map((name, index) => <option value={String(index)} key={name}>{index}级 · {name}</option>)}</select>
       <span>{records.length}/{allRecords.length}</span>
     </div>
     <div className="browserGrid">
       <div className="mistakeList">{records.map(item => <MistakeListItem key={item.recordId} item={item} selected={selectedId === item.recordId} onClick={() => openDetail(item.recordId)} />)}{!records.length && <Empty title="没有符合条件的错题" text="清空搜索或筛选条件后重试。" />}</div>
-      <div className="detailPane">{detail ? <MistakeDetail detail={detail} action={action} reloadDetail={reloadDetail} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
+      <div className="detailPane">{detail ? <MistakeDetail detail={detail} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
     </div>
   </section>
 }
 
-function MistakeListItem({ item, selected, onClick }) {
-  return <button className={`mistakeItem ${selected ? "selected" : ""} ${item.noteAvailable ? "" : "unavailable"}`} onClick={onClick}><span className={`level level${item.level}`}>{item.level}</span><span><strong>{item.sourceTitle}</strong><small>{item.categoryLabel}</small><small>{item.sourceNotebookTitle}{item.noteAvailable ? "" : " · 原卡片不可用"}</small></span></button>
+function CategoryCascade({ records, path, setPath }) {
+  const levels = []
+  for (let depth = 0; depth <= path.length; depth++) {
+    const prefix = path.slice(0, depth)
+    const choices = categoryChoices(records, prefix)
+    if (!choices.length) break
+    levels.push({ depth, choices })
+  }
+  return <div style={{ display: "flex", gap: 5, minWidth: 0, overflowX: "auto" }}>
+    {levels.map(({ depth, choices }) => <select
+      key={depth}
+      aria-label={`第${depth + 1}级分类`}
+      style={{ flex: "0 0 138px" }}
+      value={path[depth] || "all"}
+      onChange={event => setPath(event.target.value === "all" ? path.slice(0, depth) : [...path.slice(0, depth), event.target.value])}
+    ><option value="all">{depth === 0 ? "全部分类" : "全部下级"}</option>{choices.map(item => <option value={item.name} key={item.name}>{item.name}（{item.count}）</option>)}</select>)}
+  </div>
 }
 
-function MistakeDetail({ detail, action, reloadDetail }) {
+function MistakeListItem({ item, selected, onClick }) {
+  return <button className={`mistakeItem ${selected ? "selected" : ""} ${item.noteAvailable ? "" : "unavailable"}`} onClick={onClick}><span className={`level level${item.level}`}>{item.level}</span><span><strong>{item.sourceTitle}</strong><small>{item.categoryLabel}</small><small>添加 {formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small><small>{item.sourceNotebookTitle}{item.noteAvailable ? "" : " · 原卡片不可用"}</small></span></button>
+}
+
+function MistakeDetail({ detail, action, reloadDetail, onRemoved }) {
   const [view, setView] = useState("question")
   const [answerIndex, setAnswerIndex] = useState(0)
   const [category, setCategory] = useState(detail.record.manualCategory || "")
-  useEffect(() => { setCategory(detail.record.manualCategory || ""); setView("question"); setAnswerIndex(0) }, [detail.record.recordId])
+  const [removeArmed, setRemoveArmed] = useState(false)
+  useEffect(() => { setCategory(detail.record.manualCategory || ""); setView("question"); setAnswerIndex(0); setRemoveArmed(false) }, [detail.record.recordId])
   const answer = detail.answers?.[Math.min(answerIndex, Math.max(0, detail.answers.length - 1))]
   async function saveCategory() {
     await action("setMistakeCategory", { recordId: detail.record.recordId, category })
     await reloadDetail()
   }
   async function remove() {
-    if (!window.confirm("取消这道错题标记？原卡片不会被删除。")) return
-    await action("removeMistake", { recordId: detail.record.recordId })
+    if (!removeArmed) return setRemoveArmed(true)
+    const result = await action("removeMistake", { recordId: detail.record.recordId })
+    if (result?.removed) onRemoved()
   }
   return <div className="detail">
-    <div className="detailHeader"><div><small>{detail.record.sourceNotebookTitle}</small><h2>{detail.record.sourceTitle}</h2><p>{(detail.record.sourcePathTitles || []).join(" › ") || "脑图根节点"}</p></div><button onClick={() => action("openSource", { recordId: detail.record.recordId }, false)}>定位原题</button></div>
+    <div className="detailHeader"><div><small>{detail.record.sourceNotebookTitle}</small><h2>{detail.record.sourceTitle}</h2><p>{(detail.record.sourcePathTitles || []).join(" › ") || "脑图根节点"}</p><small>添加于 {formatDate(detail.record.createdAt)} · {reviewCountdown(detail.record.nextReviewAt)}</small></div><button onClick={() => action("openSource", { recordId: detail.record.recordId }, false)}>定位原题</button></div>
     <div className="detailControls">
       <select value={detail.record.level} onChange={async event => { await action("reviewMistake", { recordId: detail.record.recordId, level: Number(event.target.value) }); await reloadDetail() }}>{levelNames.map((name, index) => <option key={name} value={index}>{index}级 · {name}</option>)}</select>
-      <input value={category} onChange={event => setCategory(event.target.value)} placeholder="自定义分类（可留空）" /><button onClick={saveCategory}>保存分类</button><button className="danger" onClick={remove}>取消错题</button>
+      <input value={category} onChange={event => setCategory(event.target.value)} placeholder="自定义分类（可留空）" /><button onClick={saveCategory}>保存分类</button><button className="danger" onClick={remove}>{removeArmed ? "再次确认" : "取消错题"}</button>
     </div>
     <div className="detailTabs"><button className={view === "question" ? "active" : ""} onClick={() => setView("question")}>完整原题</button><button className={view === "answer" ? "active" : ""} onClick={() => setView("answer")}>对应答案 {detail.answers?.length ? `(${detail.answers.length})` : ""}</button>{view === "answer" && detail.answers?.length > 1 && <select value={answerIndex} onChange={event => setAnswerIndex(Number(event.target.value))}>{detail.answers.map((item, index) => <option key={item.id} value={index}>{item.title} · {item.path}</option>)}</select>}</div>
     <div className="cardFrame">{view === "question" ? <iframe title="错题原题" srcDoc={detail.questionHtml} /> : answer ? <iframe title="错题答案" srcDoc={answer.html} /> : <Empty title={detail.answerStatus === "unbound" ? "尚未绑定答案脑图" : detail.answerStatus === "index-missing" ? "答案索引尚未建立" : "没有匹配答案"} text="可从经典菜单绑定答案脑图或刷新答案索引。" />}</div>

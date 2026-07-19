@@ -55,7 +55,10 @@ async function bridge(command: string, payload: any): Promise<any> {
   if (command === "openSource") return openSourceByMistakeId(String(payload?.recordId ?? ""))
   if (command === "reviewMistake") return reviewMistakeById(String(payload?.recordId ?? ""), Number(payload?.level) as any)
   if (command === "setMistakeCategory") return setMistakeCategoryById(String(payload?.recordId ?? ""), String(payload?.category ?? ""))
-  if (command === "removeMistake") return removeMistakeById(String(payload?.recordId ?? ""))
+  if (command === "removeMistake") {
+    await removeMistakeById(String(payload?.recordId ?? ""))
+    return { removed: true }
+  }
   if (command === "repairMistakes") return repairAndOrganizeMistakes()
   if (command === "checkUpdates") return checkForUpdates(true)
   if (command === "legacyMenu") return openMenu()
