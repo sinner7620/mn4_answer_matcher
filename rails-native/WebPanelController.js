@@ -83,14 +83,6 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     controller.titleBar.autoresizingMask = 1 << 1;
     controller.view.addSubview(controller.titleBar);
 
-    var title = new UILabel({ x: 48, y: 0, width: frame.width - 96, height: TITLE_HEIGHT });
-    title.text = "跨脑图答案与错题工作台";
-    title.textAlignment = 1;
-    title.font = UIFont.boldSystemFontOfSize(14);
-    title.textColor = UIColor.colorWithHexString("#27324A");
-    title.autoresizingMask = 1 << 1;
-    controller.titleBar.addSubview(title);
-
     var close = UIButton.buttonWithType(0);
     close.frame = { x: 6, y: 3, width: 34, height: 32 };
     close.setTitleForState("×", 0);
