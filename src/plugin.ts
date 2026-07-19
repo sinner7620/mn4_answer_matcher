@@ -11,7 +11,7 @@ import {
   showHUD
 } from "marginnote"
 import { pathMatchScore } from "./domain"
-import { createAnswerToolbar, hideAnswerToolbar, showAnswerToolbar } from "./floating-toolbar"
+import { createAnswerToolbar, destroyAnswerToolbar, hideAnswerToolbar, showAnswerToolbar } from "./floating-toolbar"
 import {
   answerCardHtml,
   answerText,
@@ -411,6 +411,7 @@ export const lifecycle = defineLifecycleHandlers({
     },
     sceneDidDisconnect() {
       eventObservers.remove()
+      destroyAnswerToolbar()
       clearIndex()
       closeAnswerCard()
       closeNotebookPicker()
@@ -424,6 +425,7 @@ export const lifecycle = defineLifecycleHandlers({
       scheduleMistakeReviewReminder()
     },
     addonWillDisconnect() {
+      destroyAnswerToolbar()
       clearIndex()
     }
   }

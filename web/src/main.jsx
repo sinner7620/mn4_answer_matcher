@@ -149,7 +149,7 @@ function App() {
     <main>
       <header className="topBar">
         <nav className="topNav">{entries.map(([key, icon, name, count]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><span><Icon name={icon} /></span><strong>{name}</strong>{count > 0 && <b>{count}</b>}</button>)}</nav>
-        <div className="topTools"><small>Beta v{data?.version || "…"}</small><button className="iconButton" onClick={load} disabled={busy}><Icon name="refresh" /></button></div>
+        <div className="topTools"><small>v{data?.version || "…"}</small><button className="iconButton" onClick={load} disabled={busy}><Icon name="refresh" /></button></div>
       </header>
       <div className="pageHeading"><h1>{tab === "overview" ? "错题总览" : tab === "mistakes" ? "错题浏览" : tab === "review" ? "到期复习" : "设置"}</h1><p>{tab === "overview" ? "掌握情况、到期复习和最近错题概览" : tab === "mistakes" ? "全部错题保留在原脑图中，可分类、核对答案并定位原题" : "跨脑图答案与错题工作台"}</p></div>
       {error && <div className="error">{error}</div>}
@@ -192,6 +192,8 @@ function App() {
           ["organize", "刷新错题分类索引", "重新读取脑图标题、父节点路径和答案绑定", () => action("repairMistakes")]
         ]} />
         <SettingsGroup title="插件" items={[
+          ["info", "当前版本", `v${data?.version || "…"}`, () => action("notify", { message: `当前版本 v${data?.version || "…"}` }, false)],
+          ["reset", "重置窗口位置与大小", "将工作台恢复到屏幕左上方的默认尺寸", () => action("resetPanelFrame", null, false)],
           ["download", "检查插件更新", "检查 GitHub 版本并选择安装或保存", () => action("checkUpdates", null, false)]
         ]} />
       </section>}

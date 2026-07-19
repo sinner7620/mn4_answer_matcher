@@ -56,6 +56,14 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     NSUserDefaults.standardUserDefaults().setObjectForKey(controller.view.frame, FRAME_KEY);
   }
 
+  function resetFrame(controller) {
+    if (!controller || !controller.view) return { reset: false };
+    var frame = defaultFrame(controller);
+    controller.view.frame = frame;
+    saveFrame(controller);
+    return { reset: true, frame: frame };
+  }
+
   function closePanel(controller, remember) {
     if (!controller) return;
     if (!controller.webView) {
@@ -154,7 +162,12 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
         var message;
         try {
           message = decodeMessage(url);
-          var context = { controller: self, addon: self.addon, closePanel: closePanel };
+          var context = {
+            controller: self,
+            addon: self.addon,
+            closePanel: closePanel,
+            resetPanelFrame: resetFrame
+          };
           var result = __MNAM_WEB_BRIDGE_GLOBAL__.dispatch(context, message.command, message.payload);
           if (result && typeof result.then === "function") {
             result.then(function (payload) { sendResponse(webView, message.requestId, payload, null); })
@@ -195,6 +208,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   return {
     createController: createController,
     showPanel: showPanel,
+    resetFrame: resetFrame,
     hidePanel: closePanel,
     destroyPanel: destroyPanel,
     shouldRestorePanel: function () { return NSUserDefaults.standardUserDefaults().objectForKey(OPEN_KEY) === true; },

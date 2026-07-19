@@ -21,6 +21,7 @@ function toolbarButton(title: string, color: string, selector: string): UIButton
 }
 
 export function createAnswerToolbar(): UIView {
+  destroyAnswerToolbar()
   const toolbar = new UIView({ x: 0, y: 0, width: BUTTON_WIDTH, height: TOOLBAR_HEIGHT })
   toolbar.backgroundColor = UIColor.clearColor()
 
@@ -83,4 +84,12 @@ export function showAnswerToolbar(winRect: string): void {
 
 export function hideAnswerToolbar(): void {
   if (self.answerToolbar) self.answerToolbar.hidden = true
+}
+
+export function destroyAnswerToolbar(): void {
+  const toolbar = self.answerToolbar
+  if (toolbar?.superview) toolbar.removeFromSuperview()
+  self.answerToolbar = undefined
+  self.answerToolbarButton = undefined
+  self.mistakeToolbarButton = undefined
 }
