@@ -62,13 +62,30 @@ async function bindAnswerNotebook(): Promise<void> {
   )
   if (!notebooks.length) return showHUD("没有可绑定的其他脑图")
 
-  const selected = await chooseNotebook(notebooks.map(item => ({
-    id: item.topicId!,
-    title: item.title?.trim() || "未命名脑图"
-  })))
-  if (!selected) return
-
-  const answerNotebookId = selected.id
+  let answerNotebookId: string
+  if (MN.isMac) {
+    const selected = await chooseNotebook(notebooks.map(item => ({
+      id: item.topicId!,
+      title: item.title?.trim() || "未命名脑图"
+    })))
+    if (!selected) return
+    answerNotebookId = selected.id
+  } else {
+    // MarginNote's native picker is stable and vertically laid out on iPad.
+    // The custom UIKit overlay is Mac-only because some of its bridged properties
+    // can terminate the iPad host process before JavaScript can catch an error.
+    const options = notebooks.map((item, index) =>
+      `${index + 1}. ${item.title?.trim() || "未命名脑图"} · ${item.topicId!.slice(-6)}`
+    )
+    const result = await select(
+      options,
+      "绑定答案脑图",
+      "请选择与当前题目脑图对应的答案脑图",
+      true
+    )
+    if (result.index < 0) return
+    answerNotebookId = notebooks[result.index].topicId!
+  }
   const bindings = loadBindings()
   bindings[questionNotebookId] = answerNotebookId
   saveBindings(bindings)
