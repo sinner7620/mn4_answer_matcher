@@ -1,8 +1,5 @@
 import { delay, MN, openURL } from "marginnote"
-
-export function noteReferenceUrl(noteId: string): string {
-  return `marginnote4app://noteref/${encodeURIComponent(noteId)}`
-}
+import { noteReferenceUrl } from "./note-link"
 
 export async function openNoteInMindMap(noteId: string, notebookId?: string): Promise<void> {
   if (!noteId) throw new Error("目标卡片缺少 noteId")
@@ -12,8 +9,8 @@ export async function openNoteInMindMap(noteId: string, notebookId?: string): Pr
     return
   }
   self.pendingMistakeNavigation = { noteId, notebookId }
-  openURL(noteReferenceUrl(noteId))
-  for (let attempt = 0; attempt < 8; attempt++) {
+  openURL(noteReferenceUrl(noteId), true)
+  for (let attempt = 0; attempt < 12; attempt++) {
     await delay(0.25)
     if (MN.currnetNotebookId !== notebookId) continue
     try {

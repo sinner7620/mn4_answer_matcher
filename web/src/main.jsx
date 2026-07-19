@@ -91,20 +91,20 @@ function App() {
   const answer = data?.answer
   const chosen = answer?.candidates?.[Math.min(candidate, Math.max(0, (answer?.candidates?.length || 1) - 1))]
 
-  return <div className="shell">
-    <aside>
-      <div className="brand"><span className="brandMark">M</span><div><strong>跨脑图匹配</strong><small>MN Rails Beta</small></div></div>
-      <nav>
-        <button className={tab === "mistakes" ? "active" : ""} onClick={() => setTab("mistakes")}><span>◇</span>错题浏览<b>{data?.mistakes?.records?.length || 0}</b></button>
-        <button className={tab === "answer" ? "active" : ""} onClick={() => setTab("answer")}><span>⌕</span>答案核对</button>
-        <button className={tab === "review" ? "active" : ""} onClick={() => setTab("review")}><span>↻</span>到期复习<b>{data?.mistakes?.dueCount || 0}</b></button>
-        <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}><span>⚙</span>维护</button>
-      </nav>
-      <div className="version">本地测试版 v{data?.version || "…"}</div>
-    </aside>
+  const entries = [
+    ["mistakes", "◇", "错题浏览", data?.mistakes?.records?.length || 0],
+    ["answer", "⌕", "答案核对"],
+    ["review", "↻", "到期复习", data?.mistakes?.dueCount || 0],
+    ["settings", "⚙", "维护"]
+  ]
 
+  return <div className="shell">
     <main>
-      <header><div><h1>{tab === "mistakes" ? "错题浏览" : tab === "answer" ? "答案核对" : tab === "review" ? "到期复习" : "维护"}</h1><p>{tab === "mistakes" ? "全部错题保留在原脑图中，可分类、核对答案并定位原题" : "跨脑图答案与错题工作台"}</p></div><button className="iconButton" onClick={load} disabled={busy}>↻</button></header>
+      <header className="topBar">
+        <nav className="topNav">{entries.map(([key, icon, name, count]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><span>{icon}</span><strong>{name}</strong>{count > 0 && <b>{count}</b>}</button>)}</nav>
+        <div className="topTools"><small>Beta v{data?.version || "…"}</small><button className="iconButton" onClick={load} disabled={busy}>↻</button></div>
+      </header>
+      <div className="pageHeading"><h1>{tab === "mistakes" ? "错题浏览" : tab === "answer" ? "答案核对" : tab === "review" ? "到期复习" : "维护"}</h1><p>{tab === "mistakes" ? "全部错题保留在原脑图中，可分类、核对答案并定位原题" : "跨脑图答案与错题工作台"}</p></div>
       {error && <div className="error">{error}</div>}
       {busy && <div className="loading"><i />正在读取 MarginNote 数据…</div>}
 

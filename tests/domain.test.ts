@@ -11,6 +11,7 @@ import { readSafeNote } from "../src/safe-note"
 import { renderCardHtml } from "../src/card-html"
 import { compareVersions } from "../src/version"
 import { freePositionFrame, isFrameFullyOutside } from "../src/answer-card-layout"
+import { noteReferenceUrl } from "../src/note-link"
 import {
   createMistakeRecord,
   compareMistakeRecords,
@@ -198,6 +199,10 @@ test("答案窗口位置不再被屏幕边界限制", () => {
     ),
     true
   )
+})
+
+test("跨脑图定位使用 MN4 兼容的标准卡片链接", () => {
+  assert.equal(noteReferenceUrl("note id"), "marginnote3app://note/note%20id")
 })
 
 test("错题等级采用不同复习曲线", () => {
