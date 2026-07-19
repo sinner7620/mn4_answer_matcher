@@ -31,9 +31,15 @@ import { checkForUpdates, scheduleAutomaticUpdateCheck } from "./updater"
 import { chooseNotebook, closeNotebookPicker, onNotebookPickerAction } from "./notebook-picker"
 import { completePendingNoteNavigation } from "./note-navigation"
 import {
+  chooseMistakeLevel,
+  closeMistakeLevelPicker,
+  onMistakeLevelPickerAction
+} from "./level-picker"
+import {
   bindMistakeNotebook,
   markQuestionAsMistake,
   mistakeAnswerContext,
+  mistakeRecordForSourceQuestion,
   openLinkedMistakeOrSource,
   openMistakeDirectory,
   openMistakeRecord,
@@ -63,7 +69,7 @@ function selectedQuestion(): NodeNote | undefined {
   return focus ? new NodeNote(focus) : undefined
 }
 
-async function bindAnswerNotebook(targetQuestionNotebookId?: string): Promise<void> {
+export async function bindAnswerNotebook(targetQuestionNotebookId?: string): Promise<void> {
   const questionNotebookId = targetQuestionNotebookId ?? currentNotebookId()
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
 
@@ -124,6 +130,7 @@ export function onCloseAnswerCard(): void {
 
 export { onAnswerCardPan, onAnswerCardResize }
 export { onNotebookPickerAction }
+export { onMistakeLevelPickerAction }
 
 export async function findCurrentAnswer(): Promise<void> {
   const questionNotebookId = currentNotebookId()
@@ -197,7 +204,10 @@ export async function onMistakeToolbarClick(): Promise<void> {
     const notebookId = currentNotebookId()
     const question = selectedQuestion()
     if (!notebookId || !question) return showHUD("请先选中一张题目卡片")
-    const record = await markQuestionAsMistake(question, notebookId)
+    const previous = mistakeRecordForSourceQuestion(question, notebookId)
+    const level = await chooseMistakeLevel(previous?.level)
+    if (level === undefined) return
+    const record = await markQuestionAsMistake(question, notebookId, level)
     if (!record) return
     notifyWorkbenchDataChanged()
   } catch (error) {
@@ -289,7 +299,7 @@ export async function onMistakeLinkToolbarClick(): Promise<void> {
   }
 }
 
-async function refreshCurrentIndex(): Promise<void> {
+export async function refreshCurrentIndex(): Promise<void> {
   const questionNotebookId = currentNotebookId()
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
   const answerNotebookId = loadBindings()[questionNotebookId]
@@ -308,7 +318,7 @@ async function refreshCurrentIndex(): Promise<void> {
   showHUD(`答案索引已刷新：${result.indexedCards} 张卡片${warning}`, 4)
 }
 
-async function unbindCurrent(): Promise<void> {
+export async function unbindCurrent(): Promise<void> {
   const questionNotebookId = currentNotebookId()
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
   const bindings = loadBindings()
@@ -397,12 +407,14 @@ export const lifecycle = defineLifecycleHandlers({
       hideAnswerToolbar()
       closeAnswerCard()
       closeNotebookPicker()
+      closeMistakeLevelPicker()
     },
     sceneDidDisconnect() {
       eventObservers.remove()
       clearIndex()
       closeAnswerCard()
       closeNotebookPicker()
+      closeMistakeLevelPicker()
       stopMistakeReminderTimer()
     }
   },

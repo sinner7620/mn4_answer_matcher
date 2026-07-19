@@ -5,6 +5,8 @@ import { answerCardHtml, findAnswers } from "./matcher"
 import { loadBindings } from "./store"
 import {
   compareMistakeRecords,
+  automaticCategoryPath,
+  categoryPathPrefixes,
   createMistakeRecord,
   isDue,
   isMistakeLevel,
@@ -102,7 +104,8 @@ function recordById(recordId: string): MistakeRecord {
 
 export async function markQuestionAsMistake(
   question: NodeNote,
-  sourceNotebookId: string
+  sourceNotebookId: string,
+  requestedLevel?: MistakeLevel
 ): Promise<MistakeRecord | undefined> {
   const sourceNoteId = noteId(question.note)
   if (!sourceNoteId) throw new Error("所选卡片没有 noteId，无法标记")
@@ -117,7 +120,7 @@ export async function markQuestionAsMistake(
     sourcePathTitles: pathTitles(question),
     categoryPath: [notebookTitle(sourceNotebookId), ...pathTitles(question)],
     answerNotebookId: loadBindings()[sourceNotebookId],
-    level: previous?.level ?? 0 as MistakeLevel
+    level: requestedLevel ?? previous?.level ?? 0 as MistakeLevel
   }
   const record = previous
     ? { ...previous, ...metadata, updatedAt: now.toISOString() }
@@ -201,13 +204,14 @@ export async function removeMistakeById(recordId: string): Promise<void> {
 export interface MistakeWorkbenchRecord extends MistakeRecord {
   noteAvailable: boolean
   categoryLabel: string
+  categoryKeys: string[]
 }
 
 export interface MistakeWorkbenchData {
   records: MistakeWorkbenchRecord[]
   dueCount: number
   levelCounts: number[]
-  categories: Array<{ name: string; count: number }>
+  categories: Array<{ key: string; name: string; depth: number; count: number }>
   migratedFromLegacy: number
 }
 
@@ -222,22 +226,41 @@ export function mistakeWorkbenchData(): MistakeWorkbenchData {
       state.records[current.recordId] = current
       changed = true
     }
+    const automaticOptions = categoryPathPrefixes(automaticCategoryPath(current))
+    const manualOption = current.manualCategory
+      ? [{ key: `manual:${current.manualCategory}`, label: `自定义 › ${current.manualCategory}`, depth: 0 }]
+      : []
     return {
       ...current,
       noteAvailable: Boolean(MN.db.getNoteById(current.sourceNoteId)),
-      categoryLabel: mistakeCategoryLabel(current)
+      categoryLabel: mistakeCategoryLabel(current),
+      categoryKeys: [...automaticOptions, ...manualOption].map(option => option.key)
     }
   }).sort(compareMistakeRecords)
   if (changed) saveMistakeState(state)
-  const categoryCounts = new Map<string, number>()
+  const categoryCounts = new Map<string, { key: string; name: string; depth: number; count: number }>()
   for (const record of records) {
-    categoryCounts.set(record.categoryLabel, (categoryCounts.get(record.categoryLabel) ?? 0) + 1)
+    const options = [
+      ...categoryPathPrefixes(automaticCategoryPath(record)),
+      ...(record.manualCategory
+        ? [{ key: `manual:${record.manualCategory}`, label: `自定义 › ${record.manualCategory}`, depth: 0 }]
+        : [])
+    ]
+    for (const option of options) {
+      const previous = categoryCounts.get(option.key)
+      categoryCounts.set(option.key, {
+        key: option.key,
+        name: option.label,
+        depth: option.depth,
+        count: (previous?.count ?? 0) + 1
+      })
+    }
   }
   return {
     records,
     dueCount: records.filter(record => record.noteAvailable && isDue(record)).length,
     levelCounts: [0, 1, 2, 3, 4, 5].map(level => records.filter(record => record.level === level).length),
-    categories: [...categoryCounts].map(([name, count]) => ({ name, count })),
+    categories: [...categoryCounts.values()],
     migratedFromLegacy
   }
 }
@@ -288,7 +311,15 @@ export function mistakeDetailById(recordId: string): MistakeDetailData {
     }
   }
   return {
-    record: { ...record, noteAvailable: true, categoryLabel: mistakeCategoryLabel(record) },
+    record: {
+      ...record,
+      noteAvailable: true,
+      categoryLabel: mistakeCategoryLabel(record),
+      categoryKeys: [
+        ...categoryPathPrefixes(automaticCategoryPath(record)).map(option => option.key),
+        ...(record.manualCategory ? [`manual:${record.manualCategory}`] : [])
+      ]
+    },
     questionHtml: questionHtml(record),
     answers,
     answerStatus

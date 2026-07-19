@@ -1,6 +1,7 @@
 import { MN, NodeNote, showHUD } from "marginnote"
 import {
   answerWorkbenchData,
+  bindAnswerNotebook,
   eventObservers,
   handlers,
   lifecycle,
@@ -10,8 +11,11 @@ import {
   onCloseAnswerCard,
   onMistakeLinkToolbarClick,
   onMistakeToolbarClick,
+  onMistakeLevelPickerAction,
   onNotebookPickerAction,
-  openMenu
+  openMenu,
+  refreshCurrentIndex,
+  unbindCurrent
 } from "./plugin"
 import {
   markQuestionAsMistake,
@@ -35,22 +39,18 @@ function selectedNode(): NodeNote | undefined {
 
 async function bridge(command: string, payload: any): Promise<any> {
   if (command === "dashboard") {
-    let answer
-    try {
-      answer = answerWorkbenchData()
-    } catch (error) {
-      answer = { status: "not-found", questionTitle: "尚未选择题目", sourceNotebookTitle: "", candidates: [], message: String(error) }
-    }
-    return { version: __APP_VERSION__, answer, mistakes: mistakeWorkbenchData() }
+    return { version: __APP_VERSION__, mistakes: mistakeWorkbenchData() }
   }
   if (command === "answer") return answerWorkbenchData()
   if (command === "mistakes") return mistakeWorkbenchData()
   if (command === "markMistake") {
-    const node = selectedNode()
-    const notebookId = MN.currnetNotebookId
-    if (!node || !notebookId) throw new Error("请先选中一张题目卡片")
-    return markQuestionAsMistake(node, notebookId)
+    return onMistakeToolbarClick()
   }
+  if (command === "findCurrentAnswer") return onAnswerToolbarClick()
+  if (command === "bindAnswerNotebook") return bindAnswerNotebook()
+  if (command === "refreshAnswerIndex") return refreshCurrentIndex()
+  if (command === "unbindAnswerNotebook") return unbindCurrent()
+  if (command === "openCurrentMistakeSource") return onMistakeLinkToolbarClick()
   if (command === "mistakeDetail") return mistakeDetailById(String(payload?.recordId ?? ""))
   if (command === "openSource") return openSourceByMistakeId(String(payload?.recordId ?? ""))
   if (command === "reviewMistake") return reviewMistakeById(String(payload?.recordId ?? ""), Number(payload?.level) as any)
@@ -71,6 +71,7 @@ async function bridge(command: string, payload: any): Promise<any> {
   instanceMethods: {
     onAnswerToolbarClick,
     onMistakeToolbarClick,
+    onMistakeLevelPickerAction,
     onMistakeLinkToolbarClick,
     onNotebookPickerAction,
     onCloseAnswerCard,

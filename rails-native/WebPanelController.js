@@ -1,10 +1,11 @@
 var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
-  var FRAME_KEY = "marginnote.extension.mn4-answer-matcher.rails.frame";
+  // v3 resets the oversized full-screen frame saved by earlier iPad betas.
+  var FRAME_KEY = "marginnote.extension.mn4-answer-matcher.rails.frame.v3";
   var OPEN_KEY = "marginnote.extension.mn4-answer-matcher.rails.open";
   var SCHEME = "mnaddon";
   var TITLE_HEIGHT = 38;
-  var MIN_WIDTH = 520;
-  var MIN_HEIGHT = 420;
+  var MIN_WIDTH = 460;
+  var MIN_HEIGHT = 360;
 
   function responseScript(response) {
     var raw = JSON.stringify(response).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -30,11 +31,11 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   function defaultFrame(controller) {
     var study = Application.sharedInstance().studyController(controller.addon.window);
     var bounds = study.view.bounds;
-    var width = Math.max(MIN_WIDTH, Math.min(980, bounds.width - 32));
-    var height = Math.max(MIN_HEIGHT, Math.min(720, bounds.height - 48));
+    var width = Math.max(MIN_WIDTH, Math.min(760, bounds.width * 0.72));
+    var height = Math.max(MIN_HEIGHT, Math.min(680, bounds.height * 0.76));
     return {
-      x: Math.max(16, (bounds.width - width) / 2),
-      y: Math.max(16, (bounds.height - height) / 2),
+      x: 16,
+      y: 16,
       width: width,
       height: height
     };

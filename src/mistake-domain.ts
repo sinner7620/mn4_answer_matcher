@@ -46,6 +46,33 @@ export function mistakeCategoryPath(record: MistakeRecord): string[] {
   ]
 }
 
+export function automaticCategoryPath(record: MistakeRecord): string[] {
+  const stored = (record.categoryPath ?? []).map(cleanPart).filter(Boolean)
+  if (stored.length) return stored
+  return [
+    cleanPart(record.sourceNotebookTitle) || "未命名脑图",
+    ...(record.sourcePathTitles ?? []).map(cleanPart).filter(Boolean)
+  ]
+}
+
+export interface MistakeCategoryOption {
+  key: string
+  label: string
+  depth: number
+}
+
+export function categoryPathPrefixes(path: string[]): MistakeCategoryOption[] {
+  const clean = path.map(cleanPart).filter(Boolean)
+  return clean.map((_, index) => {
+    const prefix = clean.slice(0, index + 1)
+    return {
+      key: `path:${prefix.join("\u001f")}`,
+      label: prefix.join(" › "),
+      depth: index
+    }
+  })
+}
+
 export function mistakeCategoryLabel(record: MistakeRecord): string {
   return mistakeCategoryPath(record).slice(0, 3).join(" › ") || "未分类"
 }

@@ -13,6 +13,7 @@ import { compareVersions } from "../src/version"
 import { freePositionFrame, isFrameFullyOutside } from "../src/answer-card-layout"
 import { noteReferenceUrl } from "../src/note-link"
 import {
+  categoryPathPrefixes,
   createMistakeRecord,
   compareMistakeRecords,
   isDue,
@@ -20,6 +21,17 @@ import {
   nextReviewTime,
   reviewMistake
 } from "../src/mistake-domain"
+
+test("父级错题分类包含路径下的全部子级", () => {
+  const options = categoryPathPrefixes(["多元微分", "基本概念题", "概念题"])
+  assert.deepEqual(options.map(item => item.label), [
+    "多元微分",
+    "多元微分 › 基本概念题",
+    "多元微分 › 基本概念题 › 概念题"
+  ])
+  assert.equal(options[0].key, "path:多元微分")
+  assert.equal(options[2].depth, 2)
+})
 
 test("标题标准化忽略全半角、空白、常见中英文标点和大小写", () => {
   assert.equal(normalizeTitle(" Ａbc ？\n"), "abc")
