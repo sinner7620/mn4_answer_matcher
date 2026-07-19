@@ -60,8 +60,13 @@ async function fetchNewestRelease(): Promise<GitHubRelease | undefined> {
   const response = await fetch(RELEASES_API, { headers: githubHeaders(), timeout: 20 })
   const releases = response.json()
   if (!Array.isArray(releases)) throw new Error("GitHub Releases 返回格式异常")
+  const currentUsesPrereleaseChannel = __APP_VERSION__.includes("-")
   return releases
-    .filter((release: GitHubRelease) => !release.draft && releaseVersion(release))
+    .filter((release: GitHubRelease) =>
+      !release.draft &&
+      releaseVersion(release) &&
+      (currentUsesPrereleaseChannel || !release.prerelease)
+    )
     .sort((a: GitHubRelease, b: GitHubRelease) =>
       compareVersions(releaseVersion(b), releaseVersion(a))
     )[0]

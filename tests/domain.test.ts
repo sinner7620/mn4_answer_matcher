@@ -66,6 +66,7 @@ test("完整卡片 HTML 包含图片摘录、图片评论和子卡片", () => {
   assert.match(html, /base64-excerpt-image/)
   assert.match(html, /base64-comment-image/)
   assert.match(html, /子卡片内容/)
+  assert.doesNotMatch(html, /OCR 文本/)
 })
 
 test("合并卡片会递归展示全部有效内容并阻止循环引用", () => {
@@ -119,6 +120,8 @@ test("MN4 LinkNote 内嵌的全部合并文字、图片及评论会被展示", (
   assert.match(html, /合并卡片文字评论/)
   assert.match(html, /<strong>HTML 评论<\/strong>/)
   assert.match(html, /data-comment-picture/)
+  assert.doesNotMatch(html, /图片 OCR/)
+  assert.doesNotMatch(html, /class="merged"|合并摘录/)
 })
 
 test("同名卡片可通过最近祖先路径区分", () => {
