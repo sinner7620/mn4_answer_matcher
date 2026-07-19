@@ -28,6 +28,11 @@ import {
   showAnswerCard
 } from "./answer-card-view"
 import { checkForUpdates, scheduleAutomaticUpdateCheck } from "./updater"
+import {
+  chooseNotebook,
+  closeNotebookPicker,
+  onNotebookPickerAction
+} from "./notebook-picker"
 
 const events = ["PopupMenuOnNote", "ClosePopupMenuOnNote"] as const
 export const eventObservers = eventObserverController([...events])
@@ -57,13 +62,13 @@ async function bindAnswerNotebook(): Promise<void> {
   )
   if (!notebooks.length) return showHUD("没有可绑定的其他脑图")
 
-  const options = notebooks.map((item, index) =>
-    `${index + 1}. ${item.title?.trim() || "未命名脑图"} · ${item.topicId!.slice(-6)}`
-  )
-  const result = await select(options, "绑定答案脑图", "请选择与当前题目脑图对应的答案脑图", true)
-  if (result.index < 0) return
+  const selected = await chooseNotebook(notebooks.map(item => ({
+    id: item.topicId!,
+    title: item.title?.trim() || "未命名脑图"
+  })))
+  if (!selected) return
 
-  const answerNotebookId = notebooks[result.index].topicId!
+  const answerNotebookId = selected.id
   const bindings = loadBindings()
   bindings[questionNotebookId] = answerNotebookId
   saveBindings(bindings)
@@ -109,6 +114,7 @@ export function onCloseAnswerCard(): void {
 }
 
 export { onAnswerCardPan, onAnswerCardResize }
+export { onNotebookPickerAction }
 
 export async function findCurrentAnswer(): Promise<void> {
   const questionNotebookId = currentNotebookId()
@@ -243,11 +249,13 @@ export const lifecycle = defineLifecycleHandlers({
       self.lastClickedNote = undefined
       hideAnswerToolbar()
       closeAnswerCard()
+      closeNotebookPicker()
     },
     sceneDidDisconnect() {
       eventObservers.remove()
       clearIndex()
       closeAnswerCard()
+      closeNotebookPicker()
     }
   },
   classMethods: {
