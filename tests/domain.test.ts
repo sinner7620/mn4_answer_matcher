@@ -11,6 +11,59 @@ import { readSafeNote } from "../src/safe-note"
 import { renderCardHtml } from "../src/card-html"
 import { compareVersions } from "../src/version"
 import { freePositionFrame, isFrameFullyOutside } from "../src/answer-card-layout"
+import { scopeKey } from "../src/scope-key"
+import {
+  bindingKey,
+  getBinding,
+  getBindingForMode,
+  setBinding,
+  targetForMode
+} from "../src/binding"
+import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
+
+test("同一学习集中的不同脑图可保存独立答案绑定并兼容旧绑定", () => {
+  const bindings: any = { questions: "legacy-answers" }
+  assert.deepEqual(getBinding(bindings, "questions", "root-a"), { notebookId: "legacy-answers" })
+
+  setBinding(bindings, "questions", "root-a", {
+    notebookId: "same-study-set",
+    rootNodeId: "answer-root-a"
+  })
+  assert.deepEqual(getBinding(bindings, "questions", "root-a"), {
+    notebookId: "same-study-set",
+    rootNodeId: "answer-root-a"
+  })
+  assert.deepEqual(getBinding(bindings, "questions", "root-b"), { notebookId: "legacy-answers" })
+  assert.equal(bindingKey("questions", "root-a"), "questions::root::root-a")
+  assert.equal(
+    scopeKey({ notebookId: "same-study-set", rootNodeId: "answer-root-a" }),
+    "same-study-set::root::answer-root-a"
+  )
+})
+
+test("绑定模式关闭时使用整个学习集，开启时限定具体脑图", () => {
+  const bindings: any = {
+    questions: "whole-answer-set",
+    [bindingKey("questions", "question-root")]: {
+      notebookId: "scoped-answer-set",
+      rootNodeId: "answer-root"
+    }
+  }
+  assert.deepEqual(getBindingForMode(bindings, "questions", "question-root", false), {
+    notebookId: "whole-answer-set"
+  })
+  const scoped = getBindingForMode(bindings, "questions", "question-root", true)!
+  assert.equal(scoped.rootNodeId, "answer-root")
+  assert.deepEqual(targetForMode(scoped, false), { notebookId: "scoped-answer-set" })
+})
+
+test("绑定候选排除无标题内部节点，只保留有标题的顶层脑图", () => {
+  assert.equal(isSelectableMindMapRoot(false, "一元微分"), true)
+  assert.equal(isSelectableMindMapRoot(false, "答案"), true)
+  assert.equal(isSelectableMindMapRoot(false, "  "), false)
+  assert.equal(isSelectableMindMapRoot(true, "普通子卡片"), false)
+  assert.equal(isSelectableMindMapRoot(false, "🐙1000第九章基础22", "source", ["source", "group"]), false)
+})
 
 test("标题标准化忽略全半角、空白、常见中英文标点和大小写", () => {
   assert.equal(normalizeTitle(" Ａbc ？\n"), "abc")
@@ -147,6 +200,25 @@ test("手写评论兼容实际 marginpkg 中的 drawing 字段", () => {
   assert.match(html, /canvas data-drawing="drawing-handwriting-media"/)
   assert.doesNotMatch(html, /data:image\/jpeg;base64,drawing-handwriting-media/)
   assert.doesNotMatch(html, /手写内容不可用/)
+})
+
+test("PaintNote 同时包含底图和 drawing 时会叠加显示手写层", () => {
+  const note = {
+    noteTitle: "北京市2015年竞赛题",
+    comments: [{ type: "PaintNote", paint: "question-image", drawing: "answer-drawing" }]
+  }
+  const html = renderCardHtml(
+    note,
+    "北京市2015年竞赛题",
+    () => undefined,
+    hash => `media-${hash}`,
+    hash => `drawing-${hash}`
+  )
+  assert.match(html, /class="paint-note"/)
+  assert.match(html, /media-question-image/)
+  assert.match(html, /drawing-answer-drawing/)
+  assert.match(html, /data-drawing-overlay="true"/)
+  assert.match(html, /Math\.max\(img\.naturalHeight,Math\.ceil\(maxY\+pad\)\)/)
 })
 
 test("OTA 版本比较支持正式版和 GitHub 测试版标签", () => {

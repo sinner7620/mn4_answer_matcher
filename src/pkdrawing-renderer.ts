@@ -72,11 +72,12 @@ export const pkDrawingRendererScript = String.raw`
   function decode(raw){if(raw.length<4||raw[0]!==119||raw[1]!==114||raw[2]!==100)throw Error('magic');var root=fields(raw,3),inks=all(root,4).map(function(x){return color(x.v)}),strokes=[];
     all(root,5).forEach(function(s){var fs=fields(s.v),ink=one(fs,4),path=one(fs,5),tr=one(fs,7);if(!path)return;var pts=pointPath(path.v,transform(tr&&tr.v));if(pts.length)strokes.push({p:pts,c:inks[ink?ink.v:0]||'rgba(25,25,25,1)'})});return strokes
   }
+  function strokes(c,ss){c.lineCap='round';c.lineJoin='round';ss.forEach(function(s){if(s.p.length<2)return;c.strokeStyle=s.c;c.lineWidth=Math.max(1,s.p.reduce(function(v,p){return v+p.w},0)/s.p.length);c.beginPath();c.moveTo(s.p[0].x,s.p[0].y);for(var i=1;i<s.p.length;i++)c.lineTo(s.p[i].x,s.p[i].y);c.stroke()})}
   function draw(canvas){try{var ss=decode(drawingData(canvas.getAttribute('data-drawing')));if(!ss.length)throw Error('笔迹为空');var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
     ss.forEach(function(s){s.p.forEach(function(p){minX=Math.min(minX,p.x-p.w);minY=Math.min(minY,p.y-p.w);maxX=Math.max(maxX,p.x+p.w);maxY=Math.max(maxY,p.y+p.w)})});
+    if(canvas.getAttribute('data-drawing-overlay')==='true'){var img=canvas.parentElement&&canvas.parentElement.querySelector('img');if(!img)throw Error('手写底图缺失');var overlay=function(){if(!img.naturalWidth||!img.naturalHeight)return;var pad=8,w=Math.max(img.naturalWidth,Math.ceil(maxX+pad)),h=Math.max(img.naturalHeight,Math.ceil(maxY+pad));canvas.parentElement.style.aspectRatio=w+' / '+h;canvas.width=Math.ceil(w*devicePixelRatio);canvas.height=Math.ceil(h*devicePixelRatio);var c=canvas.getContext('2d');c.scale(devicePixelRatio,devicePixelRatio);strokes(c,ss)};if(img.complete&&img.naturalWidth)overlay();else img.addEventListener('load',overlay);return}
     var pad=8,w=Math.max(1,maxX-minX+pad*2),h=Math.max(1,maxY-minY+pad*2),cssW=Math.max(160,Math.min(900,w)),scale=cssW/w;
-    canvas.width=Math.ceil(cssW*devicePixelRatio);canvas.height=Math.ceil(h*scale*devicePixelRatio);var c=canvas.getContext('2d');c.scale(scale*devicePixelRatio,scale*devicePixelRatio);c.translate(-minX+pad,-minY+pad);c.lineCap='round';c.lineJoin='round';
-    ss.forEach(function(s){if(s.p.length<2)return;c.strokeStyle=s.c;c.lineWidth=Math.max(1,s.p.reduce(function(v,p){return v+p.w},0)/s.p.length);c.beginPath();c.moveTo(s.p[0].x,s.p[0].y);for(var i=1;i<s.p.length;i++)c.lineTo(s.p[i].x,s.p[i].y);c.stroke()});
+    canvas.width=Math.ceil(cssW*devicePixelRatio);canvas.height=Math.ceil(h*scale*devicePixelRatio);var c=canvas.getContext('2d');c.scale(scale*devicePixelRatio,scale*devicePixelRatio);c.translate(-minX+pad,-minY+pad);strokes(c,ss);
   }catch(e){canvas.outerHTML='<div class="missing-image">手写解析失败：'+String(e&&e.message||e)+'</div>'}}
   Array.prototype.forEach.call(document.querySelectorAll('canvas[data-drawing]'),draw)
 })();`

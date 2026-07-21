@@ -4,7 +4,7 @@
 
 ## 安装
 
-直接双击 `dist/mn4-answer-matcher-v1.9.6.mnaddon`，由 MarginNote 4 导入。
+直接双击 `dist/mn4-answer-matcher-v1.9.7.mnaddon`，由 MarginNote 4 导入。
 
 插件每 12 小时自动检查一次 [GitHub Releases](https://github.com/sinner7620/mn4_answer_matcher/releases)，发现正式版或测试版后可选择直接下载并交给 MarginNote 覆盖安装，或保存 `.mnaddon` 文件后手动安装；也可从插件菜单选择“检查插件更新”。覆盖升级会保留原有脑图绑定记录，并在安装前额外写入恢复备份。
 

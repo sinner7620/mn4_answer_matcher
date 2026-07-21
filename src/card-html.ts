@@ -43,6 +43,29 @@ function drawingBlock(drawing: unknown, resolveDrawing: DrawingResolver): string
     : '<div class="missing-image">未读取到手写数据</div>'
 }
 
+function paintNoteBlock(
+  paint: unknown,
+  drawing: unknown,
+  resolveMedia: MediaResolver,
+  resolveDrawing: DrawingResolver
+): string {
+  const paintHash = textOf(paint)
+  const drawingHash = textOf(drawing)
+  if (!paintHash) return drawingBlock(drawingHash, resolveDrawing)
+  if (!drawingHash) return imageBlock(paintHash, resolveMedia)
+
+  const imageBase64 = resolveMedia(paintHash)
+  const drawingBase64 = resolveDrawing(drawingHash)
+  if (imageBase64 && drawingBase64) {
+    return `<figure class="paint-note"><img src="data:image/png;base64,${imageBase64}" /><canvas data-drawing="${drawingBase64}" data-drawing-overlay="true"></canvas></figure>`
+  }
+  if (imageBase64) return `<figure><img src="data:image/png;base64,${imageBase64}" /></figure>`
+  if (drawingBase64) {
+    return `<figure class="drawing"><canvas data-drawing="${drawingBase64}"></canvas></figure>`
+  }
+  return '<div class="missing-image">图片及手写资源不可用</div>'
+}
+
 function excerptBlock(note: any, resolveMedia: MediaResolver): string {
   const excerptText = textOf(note?.excerptText)
   const image = imageBlock(note?.excerptPic?.paint, resolveMedia)
@@ -71,9 +94,12 @@ function noteBody(
     const type = String(comment?.type ?? "")
     const text = textOf(comment?.text)
     if (type === "PaintNote") {
-      const content = comment?.paint
-        ? imageBlock(comment.paint, resolveMedia)
-        : drawingBlock(comment?.drawing, resolveDrawing)
+      const content = paintNoteBlock(
+        comment?.paint,
+        comment?.drawing,
+        resolveMedia,
+        resolveDrawing
+      )
       if (content) blocks.push(content)
     } else if (type === "HtmlNote" && !text.startsWith("#")) {
       const html = textOf(comment?.html)
@@ -84,9 +110,12 @@ function noteBody(
       }
     } else if (type === "LinkNote") {
       const mergedBlocks: string[] = []
-      const mergedImage = comment?.q_hpic?.paint
-        ? imageBlock(comment.q_hpic.paint, resolveMedia)
-        : drawingBlock(comment?.q_hpic?.drawing, resolveDrawing)
+      const mergedImage = paintNoteBlock(
+        comment?.q_hpic?.paint,
+        comment?.q_hpic?.drawing,
+        resolveMedia,
+        resolveDrawing
+      )
       const mergedText = textOf(comment?.q_htext)
       if (mergedImage) mergedBlocks.push(mergedImage)
       // q_htext is OCR for q_hpic. Keep it only when the merged excerpt has no image.
@@ -137,7 +166,7 @@ export function renderCardHtml(
   return `<!doctype html>
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
 <style>
-:root{color-scheme:light dark}*{box-sizing:border-box}html,body{margin:0;padding:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#202124}body{padding:0}.card{min-height:100vh;background:#fff;padding:54px 22px 34px}.eyebrow{font-size:12px;color:#6b7280;margin-bottom:6px}.card h1{font-size:22px;line-height:1.35;margin:0 44px 18px 0}.text-block,.html-block{font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin:12px 0;padding:12px 14px;background:#f5f7fb;border-radius:9px}.html-block{white-space:normal}figure{margin:14px 0;text-align:center}img,canvas[data-drawing]{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}canvas[data-drawing]{width:100%;background:#fff}.missing-image{padding:28px;text-align:center;color:#9b1c1c;background:#fff1f1;border-radius:8px}.child{margin-top:20px;padding-top:16px;border-top:1px solid #d9dde7}.child h2{font-size:17px;margin:0 0 10px}
+:root{color-scheme:light dark}*{box-sizing:border-box}html,body{margin:0;padding:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#202124}body{padding:0}.card{min-height:100vh;background:#fff;padding:54px 22px 34px}.eyebrow{font-size:12px;color:#6b7280;margin-bottom:6px}.card h1{font-size:22px;line-height:1.35;margin:0 44px 18px 0}.text-block,.html-block{font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin:12px 0;padding:12px 14px;background:#f5f7fb;border-radius:9px}.html-block{white-space:normal}figure{margin:14px 0;text-align:center}img,canvas[data-drawing]{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}canvas[data-drawing]{width:100%;background:#fff}.paint-note{position:relative;display:block}.paint-note img{width:100%;height:auto}.paint-note canvas[data-drawing]{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;pointer-events:none}.missing-image{padding:28px;text-align:center;color:#9b1c1c;background:#fff1f1;border-radius:8px}.child{margin-top:20px;padding-top:16px;border-top:1px solid #d9dde7}.child h2{font-size:17px;margin:0 0 10px}
 @media(prefers-color-scheme:dark){html,body{color:#f3f4f6}.card{background:#202124}.text-block,.html-block{background:#303236}.eyebrow{color:#aeb4bf}.child{border-color:#45484f}}
 </style></head><body><article class="card"><div class="eyebrow">${escapeHtml(
     questionTitle
