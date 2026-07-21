@@ -1,0 +1,193 @@
+.level {
+  width: 31px;
+  font-size: 11px;
+}
+
+.reviewList {
+  display: grid;
+  gap: 7px;
+}
+
+.reviewIntro {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 4px 5px;
+}
+
+.reviewIntro small,
+.dueReviewSummary small {
+  color: #7b8599;
+}
+
+.dueReviewItem {
+  border: 1px solid #e1e6ef;
+  border-radius: 10px;
+  padding: 9px;
+  background: #fff;
+}
+
+.dueReviewSummary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.dueReviewSummary > span:last-child {
+  min-width: 0;
+}
+
+.dueReviewSummary strong,
+.dueReviewSummary small {
+  display: block;
+}
+
+.dueReviewSummary strong {
+  font-size: 13px;
+}
+
+.dueReviewSummary small {
+  margin-top: 2px;
+  font-size: 10px;
+}
+
+.dueReviewActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.dueReviewActions button,
+.dueReviewActions select,
+.dueAnswer > select {
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid #dfe4ed;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.dueReviewActions button {
+  cursor: pointer;
+}
+
+.dueReviewActions button.active {
+  color: #5369df;
+  border-color: #98a6ee;
+  background: #f0f2ff;
+}
+
+.dueReviewActions button.complete {
+  color: #fff;
+  border-color: #5369df;
+  background: #5369df;
+}
+
+.dueAnswer {
+  height: 360px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #edf0f4;
+}
+
+.dueAnswer > select {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 6px;
+}
+
+.dueAnswer iframe {
+  width: 100%;
+  height: calc(100% - 40px);
+  border: 0;
+  background: #fff;
+}
+
+.mistakeLevelGuide {
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.mistakeLevelGuide header {
+  margin-bottom: 10px;
+}
+
+.mistakeLevelGuide h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.mistakeLevelGuide header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.mistakeLevelGuide > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 7px;
+}
+
+.mistakeLevelGuide article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.mistakeLevelGuide article > span:nth-child(2) {
+  min-width: 0;
+}
+
+.mistakeLevelGuide article strong,
+.mistakeLevelGuide article small {
+  display: block;
+}
+
+.mistakeLevelGuide article strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.mistakeLevelGuide article small {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.mistakeLevelGuide article em {
+  color: #64748b;
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+@media (max-width: 590px) {
+  .reviewIntro {
+    display: block;
+  }
+
+  .reviewIntro small {
+    display: block;
+    margin-top: 3px;
+  }
+
+  .dueReviewActions {
+    justify-content: flex-start;
+  }
+
+  .mistakeLevelGuide > div {
+    grid-template-columns: 1fr;
+  }
+}

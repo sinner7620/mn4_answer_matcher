@@ -2,7 +2,9 @@ import { delay, MN, NodeNote, popup, setTimeInterval, showHUD, undoGroupingWithR
 import type { MbBookNote } from "marginnote"
 import { renderCardHtml } from "./card-html"
 import { answerCardHtml, findAnswers } from "./matcher"
-import { loadBindings } from "./store"
+import { BindingTarget, getBindingForMode, loadBindings, targetForMode } from "./store"
+import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
+import { loadMatcherSettings } from "./settings"
 import {
   compareMistakeRecords,
   automaticCategoryPath,
@@ -45,6 +47,13 @@ function pathTitles(question: NodeNote): string[] {
   }
 }
 
+function answerBinding(sourceNotebookId: string, sourceRootNodeId: string): BindingTarget | undefined {
+  const bindings = loadBindings()
+  const scoped = loadMatcherSettings().allowSameStudySetMindMap
+  const target = getBindingForMode(bindings, sourceNotebookId, sourceRootNodeId, scoped)
+  return target && targetForMode(target, scoped)
+}
+
 function cleanTag(value: string): string {
   return String(value ?? "").replace(/[\n\r#]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40)
 }
@@ -54,7 +63,7 @@ function applySourceTags(record: MistakeRecord): void {
   if (!note) return
   const node = new NodeNote(note, record.sourceNotebookId)
   const tags = node.tags.filter(tag =>
-    tag !== "错题" && !/^错题[0-5]级$/.test(tag) && !/^错题分类·/.test(tag)
+    tag !== "错题" && !/^错题[0-5]级$/.test(tag) && !/^错题状态·S[0-5]$/.test(tag) && !/^错题分类·/.test(tag)
   )
   const category = cleanTag(record.manualCategory ?? "")
   node.tags = [
@@ -71,7 +80,7 @@ function removeSourceTags(record: MistakeRecord): void {
   if (!note) return
   const node = new NodeNote(note, record.sourceNotebookId)
   node.tags = node.tags.filter(tag =>
-    tag !== "错题" && !/^错题[0-5]级$/.test(tag) && !/^错题分类·/.test(tag)
+    tag !== "错题" && !/^错题[0-5]级$/.test(tag) && !/^错题状态·S[0-5]$/.test(tag) && !/^错题分类·/.test(tag)
   )
   node.tidyupTags()
 }
@@ -86,13 +95,15 @@ function refreshRecord(record: MistakeRecord): MistakeRecord {
   if (!note) return record
   const node = new NodeNote(note, record.sourceNotebookId)
   const sourcePathTitles = pathTitles(node)
+  const binding = answerBinding(record.sourceNotebookId, nodeIdentifier(mindMapRoot(node)))
   return {
     ...record,
     sourceNotebookTitle: notebookTitle(record.sourceNotebookId),
     sourceTitle: node.title?.trim() || record.sourceTitle || "未命名错题",
     sourcePathTitles,
     categoryPath: [notebookTitle(record.sourceNotebookId), ...sourcePathTitles],
-    answerNotebookId: loadBindings()[record.sourceNotebookId] ?? record.answerNotebookId
+    answerNotebookId: binding?.notebookId ?? record.answerNotebookId,
+    answerRootNodeId: binding?.rootNodeId ?? record.answerRootNodeId
   }
 }
 
@@ -112,6 +123,7 @@ export async function markQuestionAsMistake(
   const state = loadMistakeState()
   const previous = recordForSource(state, sourceNotebookId, sourceNoteId)
   const now = new Date()
+  const binding = answerBinding(sourceNotebookId, nodeIdentifier(mindMapRoot(question)))
   const metadata = {
     sourceNoteId,
     sourceNotebookId,
@@ -119,7 +131,8 @@ export async function markQuestionAsMistake(
     sourceTitle: question.title?.trim() || "未命名错题",
     sourcePathTitles: pathTitles(question),
     categoryPath: [notebookTitle(sourceNotebookId), ...pathTitles(question)],
-    answerNotebookId: loadBindings()[sourceNotebookId],
+    answerNotebookId: binding?.notebookId,
+    answerRootNodeId: binding?.rootNodeId,
     level: requestedLevel ?? previous?.level ?? 0 as MistakeLevel
   }
   const record = previous
@@ -163,7 +176,7 @@ export function mistakeAnswerContext(
 }
 
 export async function reviewMistakeById(recordId: string, level: MistakeLevel): Promise<MistakeRecord> {
-  if (!isMistakeLevel(Number(level))) throw new Error("错题等级必须为 0–5")
+  if (!isMistakeLevel(Number(level))) throw new Error("错题分类必须为错题0级至错题5级")
   const state = loadMistakeState()
   const previous = state.records[recordId]
   if (!previous) throw new Error("错题记录不存在")
@@ -298,13 +311,16 @@ export function mistakeDetailById(recordId: string): MistakeDetailData {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) throw new Error("原题卡片不存在或尚未同步")
   const node = new NodeNote(note, record.sourceNotebookId)
-  const answerNotebookId = loadBindings()[record.sourceNotebookId] ?? record.answerNotebookId
-  let answerStatus: MistakeDetailData["answerStatus"] = answerNotebookId ? "not-found" : "unbound"
+  const binding = answerBinding(record.sourceNotebookId, nodeIdentifier(mindMapRoot(node)))
+  const answerTarget = binding ?? (record.answerNotebookId
+    ? { notebookId: record.answerNotebookId, rootNodeId: record.answerRootNodeId }
+    : undefined)
+  let answerStatus: MistakeDetailData["answerStatus"] = answerTarget ? "not-found" : "unbound"
   let answers: MistakeDetailData["answers"] = []
-  if (answerNotebookId) {
+  if (answerTarget) {
     try {
       const titles = Array.from(new Set([record.sourceTitle, ...node.titles.map(title => title.trim())])).filter(Boolean)
-      const matches = findAnswers(answerNotebookId, titles, pathTitles(node))
+      const matches = findAnswers(answerTarget, titles, pathTitles(node))
       answers = matches.map(answer => ({
         id: answer.noteId,
         title: answer.titles[0] || "答案卡片",
@@ -381,7 +397,7 @@ export async function openMistakeReviewCenter(): Promise<void> {
   const data = mistakeWorkbenchData()
   await popup({
     title: "错题统计",
-    message: `共 ${data.records.length} 道 · 到期 ${data.dueCount} 道\n${data.levelCounts.map((count, level) => `${level}级 ${count}`).join(" · ")}`,
+    message: `共 ${data.records.length} 道 · 到期 ${data.dueCount} 道\n${data.levelCounts.map((count, level) => `错题${level}级 ${count}`).join(" · ")}`,
     buttons: ["关闭"],
     canCancel: true,
     multiLine: true

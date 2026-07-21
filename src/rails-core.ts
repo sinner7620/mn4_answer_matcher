@@ -28,6 +28,7 @@ import {
   setMistakeCategoryById
 } from "./mistake-manager"
 import { checkForUpdates } from "./updater"
+import { exportMistakes } from "./mistake-export"
 
 function selectedNode(): NodeNote | undefined {
   const selected = NodeNote.getSelectedNodes()
@@ -60,6 +61,7 @@ async function bridge(command: string, payload: any): Promise<any> {
     return { removed: true }
   }
   if (command === "repairMistakes") return repairAndOrganizeMistakes()
+  if (command === "exportMistakes") return exportMistakes(payload || { format: "md" })
   if (command === "checkUpdates") return checkForUpdates(true)
   if (command === "legacyMenu") return openMenu()
   if (command === "notify") return showHUD(String(payload?.message ?? ""), 3)

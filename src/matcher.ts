@@ -1,4 +1,4 @@
-import { MN, NodeNote } from "marginnote"
+import { delay, MN, NodeNote } from "marginnote"
 import type { MbBookNote } from "marginnote"
 import {
   AnswerLike,
@@ -11,6 +11,8 @@ import {
 import { readSafeNote } from "./safe-note"
 import { renderCardHtml } from "./card-html"
 import { loadStoredIndex, saveStoredIndex, StoredAnswerIndexItem } from "./index-store"
+import { isInMindMap, nodeIdentifier } from "./mindmap-scope"
+import { IndexScope as MindMapScope, scopeKey } from "./scope-key"
 
 export interface IndexedAnswer extends AnswerLike {
   noteId: string
@@ -24,10 +26,6 @@ export interface RefreshResult {
   indexedCards: number
   skippedCards: number
   brokenLinks: number
-}
-
-function nodeId(node: NodeNote): string {
-  return String(node.nodeId ?? node.note.noteId)
 }
 
 function pathTitles(node: NodeNote): string[] {
@@ -46,7 +44,7 @@ function toIndexedAnswer(
   const safe = readSafeNote(node.note, noteId => MN.db.getNoteById(noteId))
   return {
     answer: {
-      id: nodeId(node),
+      id: nodeIdentifier(node),
       noteId: String(node.note.noteId),
       notebookId,
       pathTitles: pathTitles(node),
@@ -60,19 +58,26 @@ function toIndexedAnswer(
   }
 }
 
-export function refreshIndex(notebookId: string): RefreshResult {
+export async function refreshIndex(scope: string | MindMapScope): Promise<RefreshResult> {
+  const normalized = typeof scope === "string" ? { notebookId: scope } : scope
+  const { notebookId, rootNodeId } = normalized
+  const key = scopeKey(normalized)
   const notebook = MN.db.getNotebookById(notebookId)
   if (!notebook) throw new Error("找不到已绑定的答案脑图，可能已被删除")
 
   const byId = new Map<string, IndexedAnswer>()
   let skippedCards = 0
   let brokenLinks = 0
-  for (const note of notebook.notes ?? []) {
+  const notes = notebook.notes ?? []
+  for (let index = 0; index < notes.length; index++) {
+    const note = notes[index]
     if (!note) {
       skippedCards++
       continue
     }
     try {
+      const node = new NodeNote(note, notebookId)
+      if (!isInMindMap(node, rootNodeId)) continue
       const result = toIndexedAnswer(note, notebookId)
       brokenLinks += result.brokenLinks
       if (!byId.has(result.answer.id)) byId.set(result.answer.id, result.answer)
@@ -80,10 +85,11 @@ export function refreshIndex(notebookId: string): RefreshResult {
       skippedCards++
       MN.error(error)
     }
+    if (index % 40 === 39) await delay(0.01)
   }
   const answers = [...byId.values()]
-  indexes.set(notebookId, buildIndex(answers))
-  saveStoredIndex(notebookId, answers.map(toStoredAnswer))
+  indexes.set(key, buildIndex(answers))
+  saveStoredIndex(key, answers.map(toStoredAnswer))
   return { indexedCards: answers.length, skippedCards, brokenLinks }
 }
 
@@ -108,27 +114,28 @@ function toStoredAnswer(answer: IndexedAnswer): StoredAnswerIndexItem {
   }
 }
 
-function restoreIndex(notebookId: string): boolean {
-  const stored = loadStoredIndex(notebookId)
+function restoreIndex(key: string): boolean {
+  const stored = loadStoredIndex(key)
   if (!stored?.length) return false
-  indexes.set(notebookId, buildIndex(stored as IndexedAnswer[]))
+  indexes.set(key, buildIndex(stored as IndexedAnswer[]))
   return true
 }
 
-export function clearIndex(notebookId?: string): void {
-  if (notebookId) indexes.delete(notebookId)
+export function clearIndex(scope?: string | MindMapScope): void {
+  if (scope) indexes.delete(scopeKey(scope))
   else indexes.clear()
 }
 
 export function findAnswers(
-  notebookId: string,
+  scope: string | MindMapScope,
   questionTitles: string | string[],
   questionPath: string[] = []
 ): IndexedAnswer[] {
-  if (!indexes.has(notebookId) && !restoreIndex(notebookId)) {
+  const key = scopeKey(scope)
+  if (!indexes.has(key) && !restoreIndex(key)) {
     throw new Error("答案索引尚未建立，请在插件菜单点击“刷新答案索引”")
   }
-  const index = indexes.get(notebookId)
+  const index = indexes.get(key)
   const matchesById = new Map<string, IndexedAnswer>()
   const titles = Array.isArray(questionTitles) ? questionTitles : [questionTitles]
   for (const title of titles) {

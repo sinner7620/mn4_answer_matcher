@@ -16,6 +16,7 @@ export interface MistakeRecord {
   categoryPath: string[]
   manualCategory?: string
   answerNotebookId?: string
+  answerRootNodeId?: string
   level: MistakeLevel
   createdAt: string
   updatedAt: string
@@ -87,21 +88,21 @@ export function compareMistakeRecords(a: MistakeRecord, b: MistakeRecord): numbe
 }
 
 export const LEVEL_DESCRIPTIONS: Record<MistakeLevel, string> = {
-  0: "完全不会",
-  1: "看懂思路",
-  2: "模仿做对",
-  3: "查资料后做对",
-  4: "独立做对",
-  5: "完全掌握"
+  0: "未掌握",
+  1: "已理解",
+  2: "可完成",
+  3: "已掌握",
+  4: "已稳定",
+  5: "已迁移"
 }
 
 export const REVIEW_CURVES: Record<MistakeLevel, number[]> = {
-  0: [1, 2, 4, 7, 14, 30],
-  1: [1, 3, 7, 14, 30, 60],
-  2: [2, 5, 10, 21, 45, 90],
-  3: [3, 7, 14, 30, 60, 120],
-  4: [7, 14, 30, 60, 120, 240],
-  5: [30, 60, 120, 240, 365]
+  0: [1],
+  1: [1],
+  2: [3],
+  3: [7, 14],
+  4: [30],
+  5: [60]
 }
 
 export function isMistakeLevel(value: number): value is MistakeLevel {
@@ -123,6 +124,7 @@ export interface NewMistakeInput {
   categoryPath?: string[]
   manualCategory?: string
   answerNotebookId?: string
+  answerRootNodeId?: string
   level: MistakeLevel
   legacyMistakeNoteId?: string
 }

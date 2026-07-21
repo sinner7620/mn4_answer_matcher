@@ -13,6 +13,15 @@ import { compareVersions } from "../src/version"
 import { freePositionFrame, isFrameFullyOutside } from "../src/answer-card-layout"
 import { noteReferenceUrl } from "../src/note-link"
 import {
+  bindingKey,
+  getBinding,
+  getBindingForMode,
+  setBinding,
+  targetForMode
+} from "../src/binding"
+import { scopeKey } from "../src/scope-key"
+import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
+import {
   categoryPathPrefixes,
   createMistakeRecord,
   compareMistakeRecords,
@@ -21,6 +30,46 @@ import {
   nextReviewTime,
   reviewMistake
 } from "../src/mistake-domain"
+
+test("同一学习集中的不同脑图可保存独立答案绑定并兼容旧绑定", () => {
+  const bindings: any = { questions: "legacy-answers" }
+  assert.deepEqual(getBinding(bindings, "questions", "root-a"), { notebookId: "legacy-answers" })
+  setBinding(bindings, "questions", "root-a", {
+    notebookId: "same-study-set",
+    rootNodeId: "answer-root-a"
+  })
+  assert.deepEqual(getBinding(bindings, "questions", "root-a"), {
+    notebookId: "same-study-set",
+    rootNodeId: "answer-root-a"
+  })
+  assert.deepEqual(getBinding(bindings, "questions", "root-b"), { notebookId: "legacy-answers" })
+  assert.equal(bindingKey("questions", "root-a"), "questions::root::root-a")
+  assert.equal(scopeKey({ notebookId: "same-study-set", rootNodeId: "answer-root-a" }), "same-study-set::root::answer-root-a")
+})
+
+test("绑定模式关闭时使用整个学习集，开启时限定具体脑图", () => {
+  const bindings: any = {
+    questions: "whole-answer-set",
+    [bindingKey("questions", "question-root")]: {
+      notebookId: "scoped-answer-set",
+      rootNodeId: "answer-root"
+    }
+  }
+  assert.deepEqual(getBindingForMode(bindings, "questions", "question-root", false), {
+    notebookId: "whole-answer-set"
+  })
+  const scoped = getBindingForMode(bindings, "questions", "question-root", true)!
+  assert.equal(scoped.rootNodeId, "answer-root")
+  assert.deepEqual(targetForMode(scoped, false), { notebookId: "scoped-answer-set" })
+})
+
+test("绑定候选排除无标题内部节点，只保留有标题的顶层脑图", () => {
+  assert.equal(isSelectableMindMapRoot(false, "一元微分"), true)
+  assert.equal(isSelectableMindMapRoot(false, "答案"), true)
+  assert.equal(isSelectableMindMapRoot(false, "  "), false)
+  assert.equal(isSelectableMindMapRoot(true, "普通子卡片"), false)
+  assert.equal(isSelectableMindMapRoot(false, "🐙1000第九章基础22", "source", ["source", "group"]), false)
+})
 
 test("父级错题分类包含路径下的全部子级", () => {
   const options = categoryPathPrefixes(["多元微分", "基本概念题", "概念题"])
@@ -187,9 +236,28 @@ test("手写评论兼容实际 marginpkg 中的 drawing 字段", () => {
     () => undefined,
     hash => `drawing-${hash}`
   )
-  assert.match(html, /canvas data-drawing="drawing-handwriting-media"/)
+  assert.match(html, /canvas data-drawing-id="handwriting-media" data-drawing="drawing-handwriting-media"/)
   assert.doesNotMatch(html, /data:image\/jpeg;base64,drawing-handwriting-media/)
   assert.doesNotMatch(html, /手写内容不可用/)
+})
+
+test("PaintNote 同时包含底图和 drawing 时会叠加显示手写层", () => {
+  const note = {
+    noteTitle: "北京市2015年竞赛题",
+    comments: [{ type: "PaintNote", paint: "question-image", drawing: "answer-drawing" }]
+  }
+  const html = renderCardHtml(
+    note,
+    "北京市2015年竞赛题",
+    () => undefined,
+    hash => `media-${hash}`,
+    hash => `drawing-${hash}`
+  )
+  assert.match(html, /class="paint-note"/)
+  assert.match(html, /media-question-image/)
+  assert.match(html, /drawing-answer-drawing/)
+  assert.match(html, /data-drawing-overlay="true"/)
+  assert.match(html, /Math\.max\(img\.naturalHeight,Math\.ceil\(maxY\+pad\)\)/)
 })
 
 test("OTA 版本比较支持正式版和 GitHub 测试版标签", () => {
@@ -217,11 +285,12 @@ test("跨脑图定位使用 MN4 兼容的标准卡片链接", () => {
   assert.equal(noteReferenceUrl("note id"), "marginnote3app://note/note%20id")
 })
 
-test("错题等级采用不同复习曲线", () => {
+test("S0–S5 掌握状态采用 Markdown 规定的复习间隔", () => {
   const now = new Date("2026-07-17T00:00:00.000Z")
   assert.equal(nextReviewTime(0, 0, now).toISOString(), "2026-07-18T00:00:00.000Z")
-  assert.equal(nextReviewTime(4, 0, now).toISOString(), "2026-07-24T00:00:00.000Z")
-  assert.equal(nextReviewTime(5, 0, now).toISOString(), "2026-08-16T00:00:00.000Z")
+  assert.equal(nextReviewTime(2, 0, now).toISOString(), "2026-07-20T00:00:00.000Z")
+  assert.equal(nextReviewTime(4, 0, now).toISOString(), "2026-08-16T00:00:00.000Z")
+  assert.equal(nextReviewTime(5, 0, now).toISOString(), "2026-09-15T00:00:00.000Z")
 })
 
 test("错题记录保存首次时间、复习历史和下次到期时间", () => {
@@ -238,6 +307,6 @@ test("错题记录保存首次时间、复习历史和下次到期时间", () =>
   const reviewed = reviewMistake(record, 1, new Date("2026-07-18T00:00:00.000Z"))
   assert.equal(reviewed.reviewCount, 1)
   assert.equal(reviewed.history.length, 2)
-  assert.equal(reviewed.nextReviewAt, "2026-07-21T00:00:00.000Z")
-  assert.equal(isDue(reviewed, new Date("2026-07-21T00:00:00.000Z")), true)
+  assert.equal(reviewed.nextReviewAt, "2026-07-19T00:00:00.000Z")
+  assert.equal(isDue(reviewed, new Date("2026-07-19T00:00:00.000Z")), true)
 })

@@ -1,4 +1,8 @@
+import { previewSend } from "./previewBridge"
+
 const BRIDGE_URL = "mnaddon://bridge?payload="
+
+const isBrowserPreview = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname)
 
 function receive() {
   window.__MNBridgePending = window.__MNBridgePending || {}
@@ -13,6 +17,7 @@ function receive() {
 }
 
 function send(command, payload = null) {
+  if (isBrowserPreview) return previewSend(command, payload)
   receive()
   const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
   return new Promise((resolve, reject) => {

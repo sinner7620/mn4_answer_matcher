@@ -8,7 +8,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   var MIN_HEIGHT = 360;
 
   function responseScript(response) {
-    var raw = JSON.stringify(response).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    var raw = JSON.stringify(response).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
     return "window.__MN_WEB_BRIDGE_RECEIVE_FN__('" + raw + "')";
   }
 
@@ -179,6 +179,11 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
           sendResponse(webView, message ? message.requestId : "unknown", null, error);
         }
         return false;
+      },
+      webViewDidFinishLoad: function (webView) {
+        if (self.exportWebView && webView === self.exportWebView) {
+          __MNAM_WEB_BRIDGE_GLOBAL__.completePdfExport(self, webView);
+        }
       }
     }
   );
