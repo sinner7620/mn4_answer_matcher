@@ -40,7 +40,7 @@ await build({
 
 const manifest = {
   addonid: "marginnote.extension.mn4-answer-matcher",
-  author: "MN Answer Matcher Contributors",
+  author: "frank",
   title: "答案匹配",
   version: packageJson.version,
   marginnote_version_min: "4.0.0",
