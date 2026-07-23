@@ -16,11 +16,22 @@ import {
   bindingKey,
   getBinding,
   getBindingForMode,
+  normalizeBinding,
   setBinding,
   targetForMode
 } from "../src/binding"
+import {
+  buildOrderedPairing,
+  normalizeParentTitle
+} from "../src/ordered-pairing-domain"
+import {
+  extractAnswerRegexKey,
+  extractQuestionRegexKey,
+  validateRegexMatchingRules
+} from "../src/regex-matching"
 import { scopeKey } from "../src/scope-key"
 import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
+import { buildSourceInsights } from "../src/source-insights"
 import {
   categoryPathPrefixes,
   createMistakeRecord,
@@ -61,6 +72,150 @@ test("绑定模式关闭时使用整个学习集，开启时限定具体脑图",
   const scoped = getBindingForMode(bindings, "questions", "question-root", true)!
   assert.equal(scoped.rootNodeId, "answer-root")
   assert.deepEqual(targetForMode(scoped, false), { notebookId: "scoped-answer-set" })
+})
+
+test("绑定记录可保存章节顺序匹配方式和固定卡片 ID", () => {
+  const target = normalizeBinding({
+    notebookId: "answers",
+    rootNodeId: "answer-root",
+    matchMode: "parent-order",
+    orderedPairing: {
+      sourceNotebookId: "questions",
+      sourceRootNodeId: "question-root",
+      answerNotebookId: "answers",
+      answerRootNodeId: "answer-root",
+      createdAt: "2026-07-23T00:00:00.000Z",
+      matchedGroups: 1,
+      pairs: [{
+        questionNodeId: "q1",
+        questionNoteId: "qn1",
+        answerNodeId: "a1",
+        answerNoteId: "an1",
+        parentTitle: "绪论",
+        position: 0
+      }]
+    }
+  })
+  assert.equal(target?.matchMode, "parent-order")
+  assert.equal(target?.orderedPairing?.pairs[0].answerNoteId, "an1")
+})
+
+test("绑定记录可保存独立正则模式和题目、答案规则", () => {
+  const target = normalizeBinding({
+    notebookId: "answers",
+    matchMode: "regex",
+    regexRules: {
+      questionPattern: String.raw`第(\d+)题`,
+      answerPattern: String.raw`答案-(\d+)`
+    }
+  })
+  assert.equal(target?.matchMode, "regex")
+  assert.equal(target?.regexRules?.questionPattern, String.raw`第(\d+)题`)
+  assert.deepEqual(targetForMode(target!, false), target)
+})
+
+test("正则模式未填写规则时仍保留待配置状态", () => {
+  const target = normalizeBinding({
+    notebookId: "answers",
+    matchMode: "regex"
+  })
+  assert.equal(target?.matchMode, "regex")
+  assert.equal(target?.regexRules, undefined)
+  assert.deepEqual(targetForMode(target!, false), target)
+})
+
+test("正则题目规则和答案规则独立提取相同匹配键", () => {
+  const rules = {
+    questionPattern: String.raw`第\s*(\d+)\s*章.*?第\s*(\d+)\s*题`,
+    answerPattern: String.raw`答案\s*(\d+)-0*(\d+)`
+  }
+  assert.equal(extractQuestionRegexKey("第 3 章 第 12 题：弯曲", rules), "3\u001f12")
+  assert.equal(extractAnswerRegexKey("答案 3-012", rules), "3\u001f12")
+})
+
+test("正则规则没有捕获组时使用完整匹配且无效表达式会被拒绝", () => {
+  const fullMatchRules = {
+    questionPattern: String.raw`Q-\d+`,
+    answerPattern: String.raw`Q-\d+`
+  }
+  assert.equal(extractQuestionRegexKey("题目 Q-17", fullMatchRules), "q-17")
+  assert.equal(validateRegexMatchingRules(fullMatchRules).valid, true)
+  assert.equal(validateRegexMatchingRules({
+    questionPattern: "(",
+    answerPattern: String.raw`(\d+)`
+  }).valid, false)
+  assert.equal(validateRegexMatchingRules({
+    questionPattern: String.raw`(a+)+`,
+    answerPattern: String.raw`(\d+)`
+  }).valid, false)
+})
+
+test("纯章节名与带标题章节名都能规范化用于父节点匹配", () => {
+  assert.equal(normalizeParentTitle("第一章"), normalizeTitle("第一章"))
+  assert.equal(normalizeParentTitle("第一章 绪论"), normalizeTitle("绪论"))
+})
+
+test("同名父节点仅在两侧直接子卡片数量相同时按顺序配对", () => {
+  const child = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      nodeId: `${prefix}-node-${index}`,
+      noteId: `${prefix}-note-${index}`,
+      title: `${prefix}${index + 1}`
+    }))
+  const result = buildOrderedPairing(
+    [
+      { nodeId: "q-intro", title: "绪论与基本变形概念", children: child("q", 2) },
+      { nodeId: "q-twist", title: "扭转", children: child("qt", 2) }
+    ],
+    [
+      { nodeId: "a-intro", title: "第一部分 绪论", children: child("a", 2) },
+      { nodeId: "a-twist", title: "扭转", children: child("at", 3) }
+    ],
+    {
+      sourceNotebookId: "questions",
+      sourceRootNodeId: "question-root",
+      answerNotebookId: "answers",
+      answerRootNodeId: "answer-root",
+      createdAt: "2026-07-23T00:00:00.000Z"
+    }
+  )
+  assert.equal(result.pairing.matchedGroups, 1)
+  assert.deepEqual(
+    result.pairing.pairs.map(pair => [pair.questionNodeId, pair.answerNodeId]),
+    [["q-node-0", "a-node-0"], ["q-node-1", "a-node-1"]]
+  )
+  assert.deepEqual(
+    result.previews.map(preview => [preview.parentTitle, preview.position, preview.questionTitle, preview.answerTitle]),
+    [["绪论与基本变形概念", 0, "q1", "a1"], ["绪论与基本变形概念", 1, "q2", "a2"]]
+  )
+  assert.deepEqual(
+    result.issues.map(issue => [issue.title, issue.reason, issue.sourceCount, issue.answerCount]),
+    [["扭转", "count", 2, 3]]
+  )
+})
+
+test("父节点标题重复时不进行不确定的顺序配对", () => {
+  const group = (nodeId: string, title: string) => ({
+    nodeId,
+    title,
+    children: [{
+      nodeId: `${nodeId}-child`,
+      noteId: `${nodeId}-note`,
+      title: "卡片"
+    }]
+  })
+  const result = buildOrderedPairing(
+    [group("q1", "第一章 绪论"), group("q2", "绪论")],
+    [group("a1", "第一部分 绪论")],
+    {
+      sourceNotebookId: "questions",
+      sourceRootNodeId: "question-root",
+      answerNotebookId: "answers",
+      answerRootNodeId: "answer-root"
+    }
+  )
+  assert.equal(result.pairing.pairs.length, 0)
+  assert.equal(result.issues[0].reason, "ambiguous")
 })
 
 test("绑定候选排除无标题内部节点，只保留有标题的顶层脑图", () => {
@@ -107,6 +262,69 @@ test("错题按来源章节和自然题号稳定排序", () => {
   }
   assert.deepEqual([base, other, first].sort(compareMistakeRecords).map(item => item.recordId), ["questions:s1", "questions:s2", "questions:s3"])
   assert.equal(mistakeCategoryLabel(first), "多元微分 › 基本概念题")
+})
+
+test("错题来源分布按题目脑图根节点而不是学习集名称分组", () => {
+  const records = [
+    {
+      recordId: "r1",
+      sourceNotebookId: "study-set",
+      sourceNotebookTitle: "材料力学",
+      sourceRootNodeId: "root-a",
+      sourceRootTitle: "第一章 拉伸",
+      categoryPath: ["材料力学", "第一章 拉伸", "练习"],
+      level: 0
+    },
+    {
+      recordId: "r2",
+      sourceNotebookId: "study-set",
+      sourceNotebookTitle: "材料力学",
+      sourceRootNodeId: "root-b",
+      sourceRootTitle: "第二章 扭转",
+      categoryPath: ["材料力学", "第二章 扭转", "练习"],
+      level: 3
+    },
+    {
+      recordId: "r3",
+      sourceNotebookId: "study-set",
+      sourceNotebookTitle: "材料力学",
+      sourceRootNodeId: "root-a",
+      sourceRootTitle: "第一章 拉伸",
+      categoryPath: ["材料力学", "第一章 拉伸", "计算题"],
+      level: 1
+    }
+  ]
+  const sources = buildSourceInsights(records)
+  assert.deepEqual(
+    sources.map(source => [source.name, source.count, source.weak]),
+    [["第一章 拉伸", 2, 2], ["第二章 扭转", 1, 0]]
+  )
+  assert.equal(sources.reduce((sum, source) => sum + source.count, 0), records.length)
+  assert.deepEqual(sources[0].path, ["材料力学", "第一章 拉伸"])
+})
+
+test("同一学习集中的同名题目脑图按根节点 ID 分开显示", () => {
+  const sources = buildSourceInsights([
+    {
+      recordId: "r1",
+      sourceNotebookId: "study-set",
+      sourceNotebookTitle: "题库",
+      sourceRootNodeId: "root-a",
+      sourceRootTitle: "习题",
+      level: 0
+    },
+    {
+      recordId: "r2",
+      sourceNotebookId: "study-set",
+      sourceNotebookTitle: "题库",
+      sourceRootNodeId: "root-b",
+      sourceRootTitle: "习题",
+      level: 0
+    }
+  ])
+  assert.equal(sources.length, 2)
+  assert.deepEqual(sources.map(source => source.name), ["习题（1）", "习题（2）"])
+  assert.notEqual(sources[0].key, sources[1].key)
 })
 
 test("索引同一卡片的重复标题只收录一次", () => {

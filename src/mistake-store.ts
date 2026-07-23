@@ -42,6 +42,8 @@ function normalizeRecord(value: any): MistakeRecord | undefined {
     sourceNotebookId: String(value.sourceNotebookId),
     sourceNoteId: String(value.sourceNoteId),
     sourceNotebookTitle: String(value.sourceNotebookTitle || "未命名脑图"),
+    sourceRootNodeId: value.sourceRootNodeId ? String(value.sourceRootNodeId) : undefined,
+    sourceRootTitle: value.sourceRootTitle ? String(value.sourceRootTitle) : undefined,
     sourceTitle: String(value.sourceTitle || "未命名错题"),
     sourcePathTitles: Array.isArray(value.sourcePathTitles) ? value.sourcePathTitles.map(String) : [],
     categoryPath: Array.isArray(value.categoryPath) && value.categoryPath.length

@@ -1,7 +1,36 @@
+export type AnswerMatchMode = "title" | "parent-order" | "regex"
+
+export interface RegexMatchingRules {
+  questionPattern: string
+  answerPattern: string
+}
+
+export interface OrderedPairEntry {
+  questionNodeId: string
+  questionNoteId: string
+  answerNodeId: string
+  answerNoteId: string
+  parentTitle: string
+  position: number
+}
+
+export interface OrderedPairing {
+  sourceNotebookId: string
+  sourceRootNodeId: string
+  answerNotebookId: string
+  answerRootNodeId: string
+  createdAt: string
+  matchedGroups: number
+  pairs: OrderedPairEntry[]
+}
+
 export interface BindingTarget {
   notebookId: string
   rootNodeId?: string
   rootTitle?: string
+  matchMode?: AnswerMatchMode
+  orderedPairing?: OrderedPairing
+  regexRules?: RegexMatchingRules
 }
 
 export type BindingValue = string | BindingTarget
@@ -18,6 +47,8 @@ export function normalizeBinding(value: unknown): BindingTarget | undefined {
   if (!value || typeof value !== "object") return undefined
   const target = value as Partial<BindingTarget>
   if (typeof target.notebookId !== "string" || !target.notebookId) return undefined
+  const orderedPairing = normalizeOrderedPairing(target.orderedPairing)
+  const regexRules = normalizeRegexMatchingRules(target.regexRules)
   return {
     notebookId: target.notebookId,
     ...(typeof target.rootNodeId === "string" && target.rootNodeId
@@ -25,7 +56,73 @@ export function normalizeBinding(value: unknown): BindingTarget | undefined {
       : {}),
     ...(typeof target.rootTitle === "string" && target.rootTitle
       ? { rootTitle: target.rootTitle }
-      : {})
+      : {}),
+    ...(target.matchMode === "parent-order" ? { matchMode: "parent-order" as const } : {}),
+    ...(target.matchMode === "regex" ? { matchMode: "regex" as const } : {}),
+    ...(orderedPairing ? { orderedPairing } : {}),
+    ...(regexRules ? { regexRules } : {})
+  }
+}
+
+function cleanId(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function normalizeRegexMatchingRules(value: unknown): RegexMatchingRules | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const rules = value as Partial<RegexMatchingRules>
+  const questionPattern = typeof rules.questionPattern === "string"
+    ? rules.questionPattern.trim()
+    : ""
+  const answerPattern = typeof rules.answerPattern === "string"
+    ? rules.answerPattern.trim()
+    : ""
+  if (!questionPattern || !answerPattern) return undefined
+  return { questionPattern, answerPattern }
+}
+
+function normalizeOrderedPairing(value: unknown): OrderedPairing | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const pairing = value as Partial<OrderedPairing>
+  const sourceNotebookId = cleanId(pairing.sourceNotebookId)
+  const sourceRootNodeId = cleanId(pairing.sourceRootNodeId)
+  const answerNotebookId = cleanId(pairing.answerNotebookId)
+  const answerRootNodeId = cleanId(pairing.answerRootNodeId)
+  if (!sourceNotebookId || !sourceRootNodeId || !answerNotebookId || !answerRootNodeId) {
+    return undefined
+  }
+  const pairs = Array.isArray(pairing.pairs)
+    ? pairing.pairs.flatMap(value => {
+        if (!value || typeof value !== "object") return []
+        const pair = value as Partial<OrderedPairEntry>
+        const questionNodeId = cleanId(pair.questionNodeId)
+        const questionNoteId = cleanId(pair.questionNoteId)
+        const answerNodeId = cleanId(pair.answerNodeId)
+        const answerNoteId = cleanId(pair.answerNoteId)
+        if ((!questionNodeId && !questionNoteId) || (!answerNodeId && !answerNoteId)) return []
+        return [{
+          questionNodeId,
+          questionNoteId,
+          answerNodeId,
+          answerNoteId,
+          parentTitle: typeof pair.parentTitle === "string" ? pair.parentTitle.trim() : "",
+          position: Number.isInteger(pair.position) && Number(pair.position) >= 0
+            ? Number(pair.position)
+            : 0
+        }]
+      })
+    : []
+  if (!pairs.length) return undefined
+  return {
+    sourceNotebookId,
+    sourceRootNodeId,
+    answerNotebookId,
+    answerRootNodeId,
+    createdAt: typeof pairing.createdAt === "string" ? pairing.createdAt : "",
+    matchedGroups: Number.isInteger(pairing.matchedGroups)
+      ? Math.max(0, Number(pairing.matchedGroups))
+      : 0,
+    pairs
   }
 }
 
@@ -46,7 +143,16 @@ export function getBindingForMode(
 }
 
 export function targetForMode(target: BindingTarget, scoped: boolean): BindingTarget {
-  return scoped ? target : { notebookId: target.notebookId }
+  if (scoped) return target
+  return {
+    notebookId: target.notebookId,
+    ...(target.matchMode === "regex"
+      ? {
+          matchMode: "regex" as const,
+          ...(target.regexRules ? { regexRules: target.regexRules } : {})
+        }
+      : {})
+  }
 }
 
 export function setBinding(bindings: Bindings, notebookId: string, rootNodeId: string, target: BindingTarget): void {

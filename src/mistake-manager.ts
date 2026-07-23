@@ -1,7 +1,8 @@
 import { delay, MN, NodeNote, popup, setTimeInterval, showHUD, undoGroupingWithRefresh } from "marginnote"
 import type { MbBookNote } from "marginnote"
 import { renderCardHtml } from "./card-html"
-import { answerCardHtml, findAnswers } from "./matcher"
+import { answerCardHtml } from "./matcher"
+import { findAnswersForQuestion } from "./answer-lookup"
 import { BindingTarget, getBindingForMode, loadBindings, targetForMode } from "./store"
 import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
 import { loadMatcherSettings } from "./settings"
@@ -94,11 +95,15 @@ function refreshRecord(record: MistakeRecord): MistakeRecord {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) return record
   const node = new NodeNote(note, record.sourceNotebookId)
+  const root = mindMapRoot(node)
   const sourcePathTitles = pathTitles(node)
-  const binding = answerBinding(record.sourceNotebookId, nodeIdentifier(mindMapRoot(node)))
+  const sourceRootNodeId = nodeIdentifier(root)
+  const binding = answerBinding(record.sourceNotebookId, sourceRootNodeId)
   return {
     ...record,
     sourceNotebookTitle: notebookTitle(record.sourceNotebookId),
+    sourceRootNodeId,
+    sourceRootTitle: root.title?.trim() || "未命名题目脑图",
     sourceTitle: node.title?.trim() || record.sourceTitle || "未命名错题",
     sourcePathTitles,
     categoryPath: [notebookTitle(record.sourceNotebookId), ...sourcePathTitles],
@@ -123,11 +128,15 @@ export async function markQuestionAsMistake(
   const state = loadMistakeState()
   const previous = recordForSource(state, sourceNotebookId, sourceNoteId)
   const now = new Date()
-  const binding = answerBinding(sourceNotebookId, nodeIdentifier(mindMapRoot(question)))
+  const sourceRoot = mindMapRoot(question)
+  const sourceRootNodeId = nodeIdentifier(sourceRoot)
+  const binding = answerBinding(sourceNotebookId, sourceRootNodeId)
   const metadata = {
     sourceNoteId,
     sourceNotebookId,
     sourceNotebookTitle: notebookTitle(sourceNotebookId),
+    sourceRootNodeId,
+    sourceRootTitle: sourceRoot.title?.trim() || "未命名题目脑图",
     sourceTitle: question.title?.trim() || "未命名错题",
     sourcePathTitles: pathTitles(question),
     categoryPath: [notebookTitle(sourceNotebookId), ...pathTitles(question)],
@@ -320,7 +329,7 @@ export function mistakeDetailById(recordId: string): MistakeDetailData {
   if (answerTarget) {
     try {
       const titles = Array.from(new Set([record.sourceTitle, ...node.titles.map(title => title.trim())])).filter(Boolean)
-      const matches = findAnswers(answerTarget, titles, pathTitles(node))
+      const matches = findAnswersForQuestion(answerTarget, node, titles, pathTitles(node))
       answers = matches.map(answer => ({
         id: answer.noteId,
         title: answer.titles[0] || "答案卡片",

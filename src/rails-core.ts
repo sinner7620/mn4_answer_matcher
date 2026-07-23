@@ -1,7 +1,9 @@
 import { MN, NodeNote, showHUD } from "marginnote"
 import {
+  answerMatchingSettingsData,
   answerWorkbenchData,
   bindAnswerNotebook,
+  configureAnswerMatching,
   eventObservers,
   handlers,
   lifecycle,
@@ -15,6 +17,8 @@ import {
   onNotebookPickerAction,
   openMenu,
   refreshCurrentIndex,
+  saveRegexMatchingRules,
+  setScopedBindingEnabled,
   unbindCurrent
 } from "./plugin"
 import {
@@ -40,7 +44,11 @@ function selectedNode(): NodeNote | undefined {
 
 async function bridge(command: string, payload: any): Promise<any> {
   if (command === "dashboard") {
-    return { version: __APP_VERSION__, mistakes: mistakeWorkbenchData() }
+    return {
+      version: __APP_VERSION__,
+      mistakes: mistakeWorkbenchData(),
+      matching: answerMatchingSettingsData()
+    }
   }
   if (command === "answer") return answerWorkbenchData()
   if (command === "mistakes") return mistakeWorkbenchData()
@@ -49,6 +57,16 @@ async function bridge(command: string, payload: any): Promise<any> {
   }
   if (command === "findCurrentAnswer") return onAnswerToolbarClick()
   if (command === "bindAnswerNotebook") return bindAnswerNotebook()
+  if (command === "setScopedBinding") {
+    return setScopedBindingEnabled(payload?.enabled === true)
+  }
+  if (command === "configureAnswerMatching") return configureAnswerMatching()
+  if (command === "saveRegexMatchingRules") {
+    return saveRegexMatchingRules(
+      String(payload?.questionPattern ?? ""),
+      String(payload?.answerPattern ?? "")
+    )
+  }
   if (command === "refreshAnswerIndex") return refreshCurrentIndex()
   if (command === "unbindAnswerNotebook") return unbindCurrent()
   if (command === "openCurrentMistakeSource") return onMistakeLinkToolbarClick()

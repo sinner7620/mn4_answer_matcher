@@ -11,17 +11,18 @@ import {
   showHUD
 } from "marginnote"
 import { pathMatchScore } from "./domain"
+import { findAnswersForQuestion } from "./answer-lookup"
 import { createAnswerToolbar, destroyAnswerToolbar, hideAnswerToolbar, showAnswerToolbar } from "./floating-toolbar"
 import {
   answerCardHtml,
   answerText,
   clearIndex,
-  findAnswers,
   IndexedAnswer,
   refreshIndex
 } from "./matcher"
 import {
   BindingTarget,
+  RegexMatchingRules,
   getBinding,
   getBindingForMode,
   loadBindings,
@@ -31,9 +32,11 @@ import {
   setBinding,
   targetForMode
 } from "./store"
+import { validateRegexMatchingRules } from "./regex-matching"
 import { loadMatcherSettings, saveMatcherSettings } from "./settings"
 import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
 import { isSelectableMindMapRoot } from "./mindmap-candidate"
+import { buildOrderedPairingForBinding } from "./ordered-pairing"
 import {
   closeAnswerCard,
   onAnswerCardPan,
@@ -152,6 +155,14 @@ function bindingForSource(notebookId: string, rootNodeId?: string): BindingTarge
 
 function effectiveAnswerTarget(target: BindingTarget): BindingTarget {
   return targetForMode(target, scopedBindingEnabled())
+}
+
+function matchingModeLabel(target?: BindingTarget): string {
+  if (target?.matchMode === "parent-order") {
+    return `章节顺序配对（${target.orderedPairing?.pairs.length ?? 0} 张）`
+  }
+  if (target?.matchMode === "regex") return "正则规则匹配"
+  return "完整标题匹配"
 }
 
 async function bindAnswerStudySet(questionNotebookId: string): Promise<void> {
@@ -276,6 +287,246 @@ export async function bindAnswerNotebook(
   showHUD(`已绑定「${target.title}」，索引 ${refreshResult.indexedCards} 张卡片${warning}`, 4)
 }
 
+function issuePreview(
+  issues: ReturnType<typeof buildOrderedPairingForBinding>["issues"]
+): string {
+  if (!issues.length) return ""
+  const lines = issues.slice(0, 8).map(issue => {
+    if (issue.reason === "count") {
+      return `• ${issue.title}：题目 ${issue.sourceCount} / 答案 ${issue.answerCount}`
+    }
+    if (issue.reason === "ambiguous") return `• ${issue.title}：存在重名父节点`
+    return `• ${issue.title}：答案侧没有同名父节点`
+  })
+  const remaining = issues.length - lines.length
+  return `\n\n未自动配对：\n${lines.join("\n")}${remaining > 0 ? `\n• 另有 ${remaining} 个父节点` : ""}`
+}
+
+function pairPreview(
+  previews: ReturnType<typeof buildOrderedPairingForBinding>["previews"]
+): string {
+  const lines = previews.slice(0, 6).map(item =>
+    `• ${item.parentTitle} 第 ${item.position + 1} 张：` +
+    `${item.questionTitle || "未命名题目"} → ${item.answerTitle || "未命名答案"}`
+  )
+  const remaining = previews.length - lines.length
+  return lines.length
+    ? `\n\n配对预览：\n${lines.join("\n")}${remaining > 0 ? `\n• 另有 ${remaining} 组配对` : ""}`
+    : ""
+}
+
+export interface AnswerMatchingSettingsData {
+  mode: "title" | "parent-order" | "regex"
+  label: string
+  bound: boolean
+  scopedBinding: boolean
+  pairs: number
+  matchedGroups: number
+  regexRules: RegexMatchingRules
+}
+
+export function answerMatchingSettingsData(): AnswerMatchingSettingsData {
+  const notebookId = currentNotebookId()
+  const source = sourceMindMap()
+  const target = notebookId ? bindingForSource(notebookId, source?.rootNodeId) : undefined
+  return {
+    mode: target?.matchMode === "parent-order"
+      ? "parent-order"
+      : target?.matchMode === "regex"
+        ? "regex"
+        : "title",
+    label: matchingModeLabel(target),
+    bound: Boolean(target),
+    scopedBinding: scopedBindingEnabled(),
+    pairs: target?.orderedPairing?.pairs.length ?? 0,
+    matchedGroups: target?.orderedPairing?.matchedGroups ?? 0,
+    regexRules: target?.regexRules ?? {
+      questionPattern: "",
+      answerPattern: ""
+    }
+  }
+}
+
+function saveMatchingTarget(
+  bindings: ReturnType<typeof loadBindings>,
+  questionNotebookId: string,
+  sourceRootNodeId: string | undefined,
+  target: BindingTarget
+): void {
+  if (scopedBindingEnabled()) {
+    if (!sourceRootNodeId) throw new Error("请先选中当前题目脑图中的任一卡片")
+    setBinding(bindings, questionNotebookId, sourceRootNodeId, target)
+  } else {
+    bindings[questionNotebookId] = target
+  }
+  saveBindings(bindings)
+}
+
+export function saveRegexMatchingRules(
+  questionPattern: string,
+  answerPattern: string
+): { saved: true; mode: "regex" } {
+  const questionNotebookId = currentNotebookId()
+  if (!questionNotebookId) throw new Error("请先打开题目脑图")
+  const source = sourceMindMap()
+  if (scopedBindingEnabled() && !source) {
+    throw new Error("请先选中当前题目脑图中的任一卡片")
+  }
+  const bindings = loadBindings()
+  const target = getBindingForMode(
+    bindings,
+    questionNotebookId,
+    source?.rootNodeId,
+    scopedBindingEnabled()
+  )
+  if (!target) throw new Error("请先绑定答案脑图")
+  const regexRules = {
+    questionPattern: String(questionPattern ?? "").trim(),
+    answerPattern: String(answerPattern ?? "").trim()
+  }
+  const validation = validateRegexMatchingRules(regexRules)
+  if (!validation.valid) throw new Error(validation.error || "正则规则无效")
+  saveMatchingTarget(bindings, questionNotebookId, source?.rootNodeId, {
+    ...target,
+    matchMode: "regex",
+    regexRules
+  })
+  showHUD("已保存并启用独立正则规则匹配", 4)
+  notifyWorkbenchDataChanged()
+  return { saved: true, mode: "regex" }
+}
+
+export function setScopedBindingEnabled(enabled: boolean): void {
+  saveMatcherSettings({ allowSameStudySetMindMap: enabled })
+  showHUD(
+    enabled
+      ? "已开启：可为每个题目脑图绑定具体答案脑图，包括同一学习集内的脑图"
+      : "已关闭：恢复按整个答案学习集绑定",
+    4
+  )
+  notifyWorkbenchDataChanged()
+}
+
+export async function configureAnswerMatching(): Promise<void> {
+  const questionNotebookId = currentNotebookId()
+  if (!questionNotebookId) return showHUD("请先打开题目脑图")
+  const source = sourceMindMap()
+  if (scopedBindingEnabled() && !source) {
+    return showHUD("请先选中当前题目脑图中的任一卡片")
+  }
+  const bindings = loadBindings()
+  const currentTarget = getBindingForMode(
+    bindings,
+    questionNotebookId,
+    source?.rootNodeId,
+    scopedBindingEnabled()
+  )
+  if (!currentTarget) return showHUD("请先绑定答案脑图")
+  const mode = await select(
+    [
+      "完整标题匹配（默认）",
+      "父节点标题匹配＋子卡片顺序",
+      "独立正则规则匹配"
+    ],
+    "设置答案匹配方式",
+    `当前：${matchingModeLabel(currentTarget)}`,
+    true
+  )
+  if (mode.index < 0) return
+  if (mode.index === 0) {
+    const { matchMode: _mode, orderedPairing: _pairing, ...base } = currentTarget
+    saveMatchingTarget(bindings, questionNotebookId, source?.rootNodeId, {
+      ...base,
+      matchMode: "title"
+    })
+    showHUD("已切换为完整标题匹配")
+    notifyWorkbenchDataChanged()
+    return
+  }
+  if (mode.index === 2) {
+    saveMatchingTarget(bindings, questionNotebookId, source?.rootNodeId, {
+      ...currentTarget,
+      matchMode: "regex"
+    })
+    showHUD(
+      currentTarget.regexRules
+        ? "已切换为独立正则规则匹配"
+        : "已选择正则规则匹配，请在工作台设置中填写题目规则和答案规则",
+      4
+    )
+    notifyWorkbenchDataChanged()
+    return
+  }
+  if (!scopedBindingEnabled()) {
+    const confirmation = await popup({
+      title: "需要具体脑图绑定",
+      message:
+        "“父节点标题＋子卡片顺序”需要把题目脑图绑定到一棵具体的答案脑图。是否现在开启具体脑图绑定？",
+      buttons: ["取消", "开启"],
+      canCancel: true
+    })
+    if (confirmation.buttonIndex === 1) {
+      setScopedBindingEnabled(true)
+      showHUD("已开启具体脑图绑定，请先绑定或更换答案脑图", 4)
+    }
+    return
+  }
+  if (!source || !currentTarget.rootNodeId) return showHUD("请先绑定具体答案脑图")
+
+  HUDController.show("正在分析两个脑图的父节点与子卡片顺序…")
+  await delay(0.05)
+  let result: ReturnType<typeof buildOrderedPairingForBinding>
+  try {
+    result = buildOrderedPairingForBinding(
+      questionNotebookId,
+      source.rootNodeId,
+      currentTarget
+    )
+  } finally {
+    HUDController.hidden()
+  }
+  if (!result.pairing.pairs.length) {
+    return popup({
+      title: "没有可安全配对的章节",
+      message: `没有找到“父标题唯一且两侧子卡片数量相同”的章节。${issuePreview(result.issues)}`,
+      buttons: ["知道了"],
+      canCancel: true,
+      multiLine: true
+    }).then(() => undefined)
+  }
+  const confirmation = await popup({
+    title: "确认启用章节顺序配对",
+    message:
+      `找到 ${result.pairing.matchedGroups} 个对应父节点，可固定配对 ${result.pairing.pairs.length} 张卡片。\n` +
+      "父标题会忽略“第几部分/章/节”等前缀，并允许唯一的包含匹配；只有两侧直接子卡片数量相同的章节会参与，其他章节继续回退到完整标题匹配。" +
+      pairPreview(result.previews) +
+      issuePreview(result.issues),
+    buttons: ["取消", "启用并固定配对"],
+    canCancel: true,
+    multiLine: true
+  })
+  if (confirmation.buttonIndex !== 1) return
+
+  HUDController.show("正在刷新答案索引并保存固定配对…")
+  await delay(0.05)
+  try {
+    await refreshIndex(currentTarget)
+  } finally {
+    HUDController.hidden()
+  }
+  setBinding(bindings, questionNotebookId, source.rootNodeId, {
+    ...currentTarget,
+    matchMode: "parent-order",
+    orderedPairing: result.pairing
+  })
+  saveBindings(bindings)
+  showHUD(
+    `已启用章节顺序配对：${result.pairing.matchedGroups} 个父节点，${result.pairing.pairs.length} 张卡片`,
+    4
+  )
+  notifyWorkbenchDataChanged()
+}
+
 async function chooseMatch(
   matches: IndexedAnswer[],
   questionPath: string[]
@@ -337,9 +588,8 @@ export async function findCurrentAnswer(): Promise<void> {
     return
   }
 
-  const questionTitle = question.title?.trim()
-  if (!questionTitle) return showHUD("所选卡片没有标题，无法匹配")
-  let questionTitles = [questionTitle]
+  const questionTitle = question.title?.trim() || lookupQuestion.title?.trim() || "未命名题目"
+  let questionTitles = questionTitle === "未命名题目" ? [] : [questionTitle]
   try {
     questionTitles = Array.from(new Set([
       questionTitle,
@@ -359,9 +609,27 @@ export async function findCurrentAnswer(): Promise<void> {
     questionPath = mistakeContext?.record.sourcePathTitles ?? []
   }
 
-  const matches = findAnswers(answerTarget, questionTitles, questionPath)
-  if (!matches.length) return showHUD(`未找到同标题答案：${questionTitle}`, 3)
-  const answer = await chooseMatch(matches, questionPath)
+  const matches = findAnswersForQuestion(
+    answerTarget,
+    lookupQuestion,
+    questionTitles,
+    questionPath
+  )
+  if (!matches.length) {
+    const notFoundMessage = answerTarget.matchMode === "parent-order"
+      ? `当前卡片没有固定顺序配对，也未找到同标题答案：${questionTitle}`
+      : answerTarget.matchMode === "regex"
+        ? `题目规则未提取到可匹配键，或答案规则没有对应结果：${questionTitle}`
+        : `未找到同标题答案：${questionTitle}`
+    return showHUD(
+      notFoundMessage,
+      3
+    )
+  }
+  const answer = await chooseMatch(
+    matches,
+    answerTarget.matchMode === "regex" ? [] : questionPath
+  )
   if (answer) await showAnswer(questionTitle, answer)
 }
 
@@ -460,7 +728,7 @@ export function answerWorkbenchData(): AnswerWorkbenchData {
   } catch {
     // Stored source metadata is the fallback for migrated mistake cards.
   }
-  const matches = findAnswers(answerTarget, titles, path)
+  const matches = findAnswersForQuestion(answerTarget, lookupQuestion, titles, path)
   return {
     questionTitle,
     sourceNotebookTitle: notebookTitle(sourceNotebookId),
@@ -562,6 +830,7 @@ export async function openMenu(): Promise<void> {
       "刷新错题分类索引",
       scoped ? "绑定/更换具体答案脑图" : "绑定/更换答案学习集",
       "刷新答案索引",
+      `设置匹配方式：${matchingModeLabel(answerTarget)}`,
       `同学习集脑图绑定：${scoped ? "已开启" : "已关闭"}`,
       "检查插件更新",
       "解除当前答案绑定"
@@ -584,12 +853,12 @@ export async function openMenu(): Promise<void> {
   else if (result.index === 5) await repairAndOrganizeMistakes()
   else if (result.index === 6) await runSafely(bindAnswerNotebook)
   else if (result.index === 7) await runSafely(refreshCurrentIndex)
-  else if (result.index === 8) {
-    saveMatcherSettings({ allowSameStudySetMindMap: !scoped })
-    showHUD(!scoped ? "已开启：可绑定同学习集内的具体脑图" : "已关闭：恢复按整个答案学习集匹配", 4)
+  else if (result.index === 8) await runSafely(configureAnswerMatching)
+  else if (result.index === 9) {
+    setScopedBindingEnabled(!scoped)
   }
-  else if (result.index === 9) await checkForUpdates(true)
-  else if (result.index === 10) await runSafely(unbindCurrent)
+  else if (result.index === 10) await checkForUpdates(true)
+  else if (result.index === 11) await runSafely(unbindCurrent)
 }
 
 export const lifecycle = defineLifecycleHandlers({

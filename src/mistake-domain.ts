@@ -11,6 +11,8 @@ export interface MistakeRecord {
   sourceNoteId: string
   sourceNotebookId: string
   sourceNotebookTitle: string
+  sourceRootNodeId?: string
+  sourceRootTitle?: string
   sourceTitle: string
   sourcePathTitles: string[]
   categoryPath: string[]
@@ -119,6 +121,8 @@ export interface NewMistakeInput {
   sourceNoteId: string
   sourceNotebookId: string
   sourceNotebookTitle: string
+  sourceRootNodeId?: string
+  sourceRootTitle?: string
   sourceTitle: string
   sourcePathTitles: string[]
   categoryPath?: string[]

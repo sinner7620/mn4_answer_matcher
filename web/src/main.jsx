@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react"
 import { createRoot } from "react-dom/client"
 import MNBridge from "./lib/mnBridge"
 import { Icon } from "./icons"
+import { buildSourceInsights } from "../../src/source-insights"
 import "./styles.css"
 import "./overview.css"
 import "./overview-polish.css"
@@ -54,62 +55,6 @@ function categoryChoices(records, prefix) {
     if (part) counts.set(part, (counts.get(part) || 0) + 1)
   }
   return [...counts].map(([name, count]) => ({ name, count }))
-}
-
-function sourceInsights(records, limit = 6) {
-  const roots = new Map()
-  for (const record of records) {
-    const storedPath = (record.categoryPath || []).map(part => String(part || "").trim()).filter(Boolean)
-    const path = storedPath.length ? storedPath : [record.sourceNotebookTitle || "未命名脑图"]
-    let children = roots
-    const prefix = []
-    for (const part of path) {
-      prefix.push(part)
-      let node = children.get(part)
-      if (!node) {
-        node = { key: prefix.join("\u001f"), path: [...prefix], name: part, records: [], children: new Map() }
-        children.set(part, node)
-      }
-      node.records.push(record)
-      children = node.children
-    }
-  }
-
-  // A single-child chain covers exactly the same questions, so use its most
-  // specific node. Branches are split from largest to smallest while every
-  // question remains in exactly one visible group.
-  function collapseSingleChild(node) {
-    let current = node
-    while (current.children.size === 1) {
-      const child = [...current.children.values()][0]
-      if (child.records.length !== current.records.length) break
-      current = child
-    }
-    return current
-  }
-
-  const selected = [...roots.values()].map(collapseSingleChild)
-  while (selected.length < limit) {
-    const candidates = selected.map((node, index) => {
-      const children = [...node.children.values()].map(collapseSingleChild)
-      const fullyCovered = children.reduce((sum, child) => sum + child.records.length, 0) === node.records.length
-      const fits = selected.length - 1 + children.length <= limit
-      return { node, index, children, eligible: children.length > 1 && fullyCovered && fits }
-    }).filter(candidate => candidate.eligible)
-      .sort((a, b) => b.node.records.length - a.node.records.length || a.node.path.length - b.node.path.length)
-    if (!candidates.length) break
-    const candidate = candidates[0]
-    selected.splice(candidate.index, 1, ...candidate.children)
-  }
-
-  return selected.map(node => ({
-    key: node.key,
-    path: node.path,
-    name: node.name,
-    notebook: node.path[0] || "未命名脑图",
-    count: node.records.length,
-    weak: node.records.filter(record => record.level <= 1).length
-  })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"))
 }
 
 function App() {
@@ -247,10 +192,22 @@ function App() {
       {tab === "settings" && <section className="settingsGroups">
         <SettingsGroup title="答案匹配" items={[
           ["answer", "查看当前卡片答案", "显示当前选中卡片对应的完整答案", () => action("findCurrentAnswer", null, false)],
-          ["bind", "绑定或更换答案脑图", "为当前题目脑图选择对应答案脑图", () => action("bindAnswerNotebook")],
+          ["bind", "同一学习集具体脑图绑定", data?.matching?.scopedBinding
+            ? "已开启：每个题目脑图可绑定具体答案脑图，点击关闭"
+            : "已关闭：点击开启，可选择同一学习集下的其他脑图", () => action("setScopedBinding", { enabled: !data?.matching?.scopedBinding })],
+          ["bind", "绑定或更换答案脑图", data?.matching?.scopedBinding
+            ? "为当前题目脑图选择具体答案脑图，可选择同一学习集"
+            : "当前按整个答案学习集绑定；开启上方选项可绑定具体脑图", () => action("bindAnswerNotebook")],
+          ["organize", "设置答案匹配方式", data?.matching?.mode === "parent-order"
+            ? `章节顺序配对：${data.matching.matchedGroups} 个父节点，${data.matching.pairs} 张卡片`
+            : data?.matching?.mode === "regex"
+              ? "独立正则规则匹配（不会回退到其他查找方式）"
+              : "完整标题匹配、章节顺序配对或独立正则规则匹配", () => action("configureAnswerMatching")],
           ["refresh", "刷新答案索引", "仅在答案脑图内容变化后手动刷新", () => action("refreshAnswerIndex")],
           ["unlink", "解除答案绑定", "解除当前题目脑图的答案关联", () => action("unbindAnswerNotebook")]
         ]} />
+        {data?.matching?.mode === "regex" &&
+          <RegexMatchingSettings matching={data.matching} action={action} />}
         <SettingsGroup title="错题管理" items={[
           ["mistakes", "标记当前卡片错题", "选择错题0级至错题5级后加入错题浏览", () => action("markMistake")],
           ["locate", "定位当前错题原题", "跳转到当前错题记录的原脑图位置", () => action("openCurrentMistakeSource", null, false)],
@@ -319,15 +276,14 @@ function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
   const weak = records.filter(item => item.level <= 1).length
   const mastered = records.filter(item => item.level === 5).length
   const recentCount = records.filter(item => now - new Date(item.createdAt).getTime() <= 7 * 86400000).length
-  const notebooks = new Set(records.map(item => item.sourceNotebookId)).size
   const levelCounts = levelNames.map((_, level) => records.filter(item => item.level === level).length)
   const maxLevelCount = Math.max(1, ...levelCounts)
   const recent = [...records].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 5)
-  const sources = sourceInsights(records)
+  const sources = buildSourceInsights(records)
   const sourceColors = ["#0f172a", "#657c68", "#c4a16b", "#df806e", "#64748b", "#8b7b86", "#94a3b8"]
   const topSources = sources.slice(0, 6)
   const otherCount = sources.slice(6).reduce((sum, source) => sum + source.count, 0)
-  const chartSources = [...topSources, ...(otherCount ? [{ key: "other", name: "其他来源", notebook: `${sources.length - 6} 个父节点`, count: otherCount, weak: 0 }] : [])]
+  const chartSources = [...topSources, ...(otherCount ? [{ key: "other", name: "其他来源", notebook: `${sources.length - 6} 棵题目脑图`, count: otherCount, weak: 0 }] : [])]
   let sourceOffset = 0
   const sourceGradient = chartSources.length ? chartSources.map((source, index) => {
     const start = sourceOffset
@@ -336,7 +292,7 @@ function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
   }).join(",") : "#e9edf5 0 100%"
   const mastery = records.length ? Math.round(mastered / records.length * 100) : 0
   const cards = [
-    ["total", "错题总数", records.length, `${notebooks} 个脑图`],
+    ["total", "错题总数", records.length, `${sources.length} 棵题目脑图`],
     ["due", "今日到期", due, due ? "建议优先复习" : "当前已清空"],
     ["weak", "薄弱错题", weak, "错题0–1级"],
     ["mastered", "已迁移", mastered, "错题5级"],
@@ -345,10 +301,10 @@ function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
   return <section className="overviewPage">
     <div className="overviewHero"><div><span className="overviewKicker">学习概览</span><strong>错题本学习进度</strong><small>{due ? `有 ${due} 道错题已经到期，建议从薄弱状态开始复习` : "当前没有到期任务"}</small></div><div className="masteryRing" style={{ "--progress": `${mastery * 3.6}deg` }}><span><strong>{mastery}%</strong><small>已迁移</small></span></div></div>
     <div className="overviewCards">{cards.map(([icon, label, value, note], index) => <div className={`overviewCard tone${index}`} key={label}><i><Icon name={icon} /></i><span><small>{label}</small><strong>{value}</strong><em>{note}</em></span></div>)}</div>
-    <div className="overviewPanel sourcePanel"><header><div><strong>错题来源分布</strong><small>按数量自适应选择覆盖最完整的父节点，点击条目即可筛选</small></div><b>{sources.length} 个覆盖节点</b></header>{sources.length ? <div className="sourceChart"><div className="sourceDonut" style={{ background: `conic-gradient(${sourceGradient})` }}><span><strong>{records.length}</strong><small>全部错题</small></span></div><div className="sourceBars">{chartSources.map((source, index) => {
+    <div className="overviewPanel sourcePanel"><header><div><strong>错题来源分布</strong><small>按题目脑图根节点统计，每道错题只计入一个来源</small></div><b>{sources.length} 棵题目脑图</b></header>{sources.length ? <div className="sourceChart"><div className="sourceDonut" style={{ background: `conic-gradient(${sourceGradient})` }}><span><strong>{records.length}</strong><small>全部错题</small></span></div><div className="sourceBars">{chartSources.map((source, index) => {
       const percent = Math.round(source.count / Math.max(1, records.length) * 100)
       return <button key={source.key} disabled={!source.path} onClick={() => source.path && onSource(source.path)}><i style={{ background: sourceColors[index] }} /><span><strong>{source.name}</strong><small>{source.notebook}{source.weak ? ` · ${source.weak} 道薄弱` : ""}</small><em><b style={{ width: `${percent}%`, background: sourceColors[index] }} /></em></span><b>{source.count}<small>{percent}%</small></b></button>
-    })}</div></div> : <Empty title="暂无来源数据" text="标记错题后会根据父节点自动分析。" />}</div>
+    })}</div></div> : <Empty title="暂无来源数据" text="标记错题后会按题目脑图根节点统计。" />}</div>
     <div className="overviewGrid">
       <div className="overviewPanel"><header><strong>错题分类分布</strong><small>错题0级最薄弱，错题5级为已迁移</small></header><div className="levelChart">{levelCounts.map((count, level) => <div className="levelRow" key={level}><span>{level}级</span><div><i className={`levelBar level${level}`} style={{ width: `${Math.max(count ? 8 : 0, count / maxLevelCount * 100)}%` }} /></div><b>{count}</b></div>)}</div></div>
       <div className="overviewPanel recentPanel"><header><strong>最近添加</strong><button onClick={onBrowse}>浏览全部</button></header><div>{recent.map(item => <button className="recentItem" key={item.recordId} onClick={() => onOpen(item.recordId)}><span className={`level level${item.level}`}>{item.level}级</span><span><strong>{item.sourceTitle}</strong><small>{formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small></span><b><Icon name="right" /></b></button>)}{!recent.length && <Empty title="还没有错题" text="从卡片侧边标记第一道错题。" />}</div></div>
@@ -444,6 +400,57 @@ function Empty({ title, text }) {
 
 function SettingsGroup({ title, items }) {
   return <div className="settingsGroup"><h2>{title}</h2><div>{items.map(([icon, name, description, onClick]) => <button key={name} onClick={onClick}><i><Icon name={icon} /></i><span><strong>{name}</strong><small>{description}</small></span></button>)}</div></div>
+}
+
+function RegexMatchingSettings({ matching, action }) {
+  const [questionPattern, setQuestionPattern] = useState("")
+  const [answerPattern, setAnswerPattern] = useState("")
+  const [saved, setSaved] = useState("")
+
+  useEffect(() => {
+    setQuestionPattern(matching?.regexRules?.questionPattern || "")
+    setAnswerPattern(matching?.regexRules?.answerPattern || "")
+  }, [matching?.regexRules?.questionPattern, matching?.regexRules?.answerPattern])
+
+  function applyPreset(kind) {
+    const pattern = kind === "number"
+      ? String.raw`(?:第\s*)?(\d+)\s*(?:题|[.、])?`
+      : String.raw`(?:第\s*)?(\d+)\s*(?:章|[-－—])\D*?(?:第\s*)?(\d+)\s*(?:题)?`
+    setQuestionPattern(pattern)
+    setAnswerPattern(pattern)
+    setSaved("")
+  }
+
+  async function save() {
+    setSaved("")
+    const result = await action("saveRegexMatchingRules", {
+      questionPattern,
+      answerPattern
+    })
+    if (result?.saved) setSaved("规则已保存，正则匹配模式已独立启用。")
+  }
+
+  return <section className="regexSettings">
+    <header>
+      <span><strong>正则规则匹配</strong><small>独立匹配方式，不参与完整标题或章节顺序的查找优先级</small></span>
+      <b className={matching?.mode === "regex" ? "active" : ""}>{matching?.mode === "regex" ? "已启用" : "未启用"}</b>
+    </header>
+    <div className="regexPresets">
+      <button onClick={() => applyPreset("number")}>仅题号预设</button>
+      <button onClick={() => applyPreset("chapter-number")}>章节＋题号预设</button>
+    </div>
+    <label>
+      <span>题目匹配规则</span>
+      <input value={questionPattern} onChange={event => { setQuestionPattern(event.target.value); setSaved("") }} placeholder={String.raw`例如：(?:第\s*)?(\d+)\s*题`} />
+    </label>
+    <label>
+      <span>答案匹配规则</span>
+      <input value={answerPattern} onChange={event => { setAnswerPattern(event.target.value); setSaved("") }} placeholder={String.raw`例如：答案\s*(\d+)`} />
+    </label>
+    <p>规则无需填写 <code>/.../</code> 分隔符。存在捕获组时按捕获组顺序生成匹配键；没有捕获组时使用完整匹配内容。题目键与答案键完全相同时才会匹配。</p>
+    <button className="regexSave" disabled={!questionPattern.trim() || !answerPattern.trim()} onClick={save}>保存规则并启用正则匹配</button>
+    {saved && <small className="regexSaved">{saved}</small>}
+  </section>
 }
 
 function MistakeLevelGuide() {

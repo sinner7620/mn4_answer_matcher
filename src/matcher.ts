@@ -13,6 +13,8 @@ import { renderCardHtml } from "./card-html"
 import { loadStoredIndex, saveStoredIndex, StoredAnswerIndexItem } from "./index-store"
 import { isInMindMap, nodeIdentifier } from "./mindmap-scope"
 import { IndexScope as MindMapScope, scopeKey } from "./scope-key"
+import type { RegexMatchingRules } from "./binding"
+import { createRegexKeyExtractor } from "./regex-matching"
 
 export interface IndexedAnswer extends AnswerLike {
   noteId: string
@@ -21,6 +23,9 @@ export interface IndexedAnswer extends AnswerLike {
 }
 
 const indexes = new Map<string, Map<string, IndexedAnswer[]>>()
+const answersByReference = new Map<string, Map<string, IndexedAnswer>>()
+const answersByScope = new Map<string, IndexedAnswer[]>()
+const regexIndexes = new Map<string, Map<string, IndexedAnswer[]>>()
 
 export interface RefreshResult {
   indexedCards: number
@@ -88,7 +93,7 @@ export async function refreshIndex(scope: string | MindMapScope): Promise<Refres
     if (index % 40 === 39) await delay(0.01)
   }
   const answers = [...byId.values()]
-  indexes.set(key, buildIndex(answers))
+  rememberAnswers(key, answers)
   saveStoredIndex(key, answers.map(toStoredAnswer))
   return { indexedCards: answers.length, skippedCards, brokenLinks }
 }
@@ -117,13 +122,54 @@ function toStoredAnswer(answer: IndexedAnswer): StoredAnswerIndexItem {
 function restoreIndex(key: string): boolean {
   const stored = loadStoredIndex(key)
   if (!stored?.length) return false
-  indexes.set(key, buildIndex(stored as IndexedAnswer[]))
+  rememberAnswers(key, stored as IndexedAnswer[])
   return true
 }
 
+function rememberAnswers(key: string, answers: IndexedAnswer[]): void {
+  indexes.set(key, buildIndex(answers))
+  answersByScope.set(key, answers)
+  for (const cacheKey of [...regexIndexes.keys()]) {
+    if (cacheKey.startsWith(`${key}\u0000`)) regexIndexes.delete(cacheKey)
+  }
+  const references = new Map<string, IndexedAnswer>()
+  for (const answer of answers) {
+    if (answer.id) references.set(answer.id, answer)
+    if (answer.noteId) references.set(answer.noteId, answer)
+  }
+  answersByReference.set(key, references)
+}
+
 export function clearIndex(scope?: string | MindMapScope): void {
-  if (scope) indexes.delete(scopeKey(scope))
-  else indexes.clear()
+  if (scope) {
+    const key = scopeKey(scope)
+    indexes.delete(key)
+    answersByReference.delete(key)
+    answersByScope.delete(key)
+    for (const cacheKey of [...regexIndexes.keys()]) {
+      if (cacheKey.startsWith(`${key}\u0000`)) regexIndexes.delete(cacheKey)
+    }
+  } else {
+    indexes.clear()
+    answersByReference.clear()
+    answersByScope.clear()
+    regexIndexes.clear()
+  }
+}
+
+export function findAnswerByReference(
+  scope: string | MindMapScope,
+  ...references: Array<string | undefined>
+): IndexedAnswer | undefined {
+  const key = scopeKey(scope)
+  if (!answersByReference.has(key) && !restoreIndex(key)) {
+    throw new Error("答案索引尚未建立，请在插件菜单点击“刷新答案索引”")
+  }
+  const lookup = answersByReference.get(key)
+  for (const reference of references) {
+    if (reference && lookup?.has(reference)) return lookup.get(reference)
+  }
+  return undefined
 }
 
 export function findAnswers(
@@ -148,6 +194,38 @@ export function findAnswers(
     (a, b) =>
       pathMatchScore(questionPath, b.pathTitles) - pathMatchScore(questionPath, a.pathTitles)
   )
+}
+
+export function findAnswersByRegex(
+  scope: string | MindMapScope,
+  questionTitles: string | string[],
+  rules: RegexMatchingRules
+): IndexedAnswer[] {
+  const key = scopeKey(scope)
+  if (!answersByScope.has(key) && !restoreIndex(key)) {
+    throw new Error("答案索引尚未建立，请在插件菜单点击“刷新答案索引”")
+  }
+  const questionExtractor = createRegexKeyExtractor(rules.questionPattern, "题目规则")
+  const answerExtractor = createRegexKeyExtractor(rules.answerPattern, "答案规则")
+  const regexCacheKey = `${key}\u0000${rules.answerPattern}`
+  let answerIndex = regexIndexes.get(regexCacheKey)
+  if (!answerIndex) {
+    answerIndex = new Map<string, IndexedAnswer[]>()
+    for (const answer of answersByScope.get(key) ?? []) {
+      const keys = new Set(answer.titles.map(answerExtractor).filter(Boolean) as string[])
+      for (const answerKey of keys) {
+        answerIndex.set(answerKey, [...(answerIndex.get(answerKey) ?? []), answer])
+      }
+    }
+    regexIndexes.set(regexCacheKey, answerIndex)
+  }
+  const titles = Array.isArray(questionTitles) ? questionTitles : [questionTitles]
+  const questionKeys = new Set(titles.map(questionExtractor).filter(Boolean) as string[])
+  const matches = new Map<string, IndexedAnswer>()
+  for (const questionKey of questionKeys) {
+    for (const answer of answerIndex.get(questionKey) ?? []) matches.set(answer.id, answer)
+  }
+  return rankAnswers([...matches.values()])
 }
 
 export function answerText(answer: IndexedAnswer): string {
