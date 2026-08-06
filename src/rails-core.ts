@@ -29,6 +29,7 @@ import {
   removeMistakeById,
   repairAndOrganizeMistakes,
   reviewMistakeById,
+  saveMistakeReviewCurves,
   setMistakeCategoryById
 } from "./mistake-manager"
 import { checkForUpdates } from "./updater"
@@ -73,6 +74,7 @@ async function bridge(command: string, payload: any): Promise<any> {
   if (command === "mistakeDetail") return mistakeDetailById(String(payload?.recordId ?? ""))
   if (command === "openSource") return openSourceByMistakeId(String(payload?.recordId ?? ""))
   if (command === "reviewMistake") return reviewMistakeById(String(payload?.recordId ?? ""), Number(payload?.level) as any)
+  if (command === "saveMistakeReviewCurves") return saveMistakeReviewCurves(payload?.curves)
   if (command === "setMistakeCategory") return setMistakeCategoryById(String(payload?.recordId ?? ""), String(payload?.category ?? ""))
   if (command === "removeMistake") {
     await removeMistakeById(String(payload?.recordId ?? ""))

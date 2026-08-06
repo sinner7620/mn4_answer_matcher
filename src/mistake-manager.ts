@@ -5,7 +5,7 @@ import { answerCardHtml } from "./matcher"
 import { findAnswersForQuestion } from "./answer-lookup"
 import { BindingTarget, getBindingForMode, loadBindings, targetForMode } from "./store"
 import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
-import { loadMatcherSettings } from "./settings"
+import { loadMatcherSettings, normalizeMistakeReviewCurves, saveMatcherSettings } from "./settings"
 import {
   compareMistakeRecords,
   automaticCategoryPath,
@@ -15,6 +15,7 @@ import {
   isMistakeLevel,
   LEVEL_DESCRIPTIONS,
   MistakeLevel,
+  MistakeReviewCurves,
   MistakeRecord,
   mistakeCategoryLabel,
   reviewMistake,
@@ -28,6 +29,7 @@ import {
   upsertMistakeRecord
 } from "./mistake-store"
 import { openNoteInMindMap } from "./note-navigation"
+import { cleanMistakeCategoryTag, mistakeSourceTags, withoutMistakeSourceTags } from "./mistake-tags"
 
 const LAST_REMINDER_KEY = "marginnote.extension.mn4-answer-matcher.mistake-reminder.v2"
 const REMINDER_THROTTLE = 6 * 60 * 60 * 1000
@@ -55,24 +57,11 @@ function answerBinding(sourceNotebookId: string, sourceRootNodeId: string): Bind
   return target && targetForMode(target, scoped)
 }
 
-function cleanTag(value: string): string {
-  return String(value ?? "").replace(/[\n\r#]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40)
-}
-
-function applySourceTags(record: MistakeRecord): void {
+function applySourceTags(record: MistakeRecord, previousCategory?: string): void {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) return
   const node = new NodeNote(note, record.sourceNotebookId)
-  const tags = node.tags.filter(tag =>
-    tag !== "错题" && !/^错题[0-5]级$/.test(tag) && !/^错题状态·S[0-5]$/.test(tag) && !/^错题分类·/.test(tag)
-  )
-  const category = cleanTag(record.manualCategory ?? "")
-  node.tags = [
-    ...tags,
-    "错题",
-    `错题${record.level}级`,
-    ...(category ? [`错题分类·${category}`] : [])
-  ]
+  node.tags = mistakeSourceTags(node.tags, record.level, record.manualCategory, previousCategory)
   node.tidyupTags()
 }
 
@@ -80,9 +69,7 @@ function removeSourceTags(record: MistakeRecord): void {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) return
   const node = new NodeNote(note, record.sourceNotebookId)
-  node.tags = node.tags.filter(tag =>
-    tag !== "错题" && !/^错题[0-5]级$/.test(tag) && !/^错题状态·S[0-5]$/.test(tag) && !/^错题分类·/.test(tag)
-  )
+  node.tags = withoutMistakeSourceTags(node.tags, record.manualCategory)
   node.tidyupTags()
 }
 
@@ -146,10 +133,10 @@ export async function markQuestionAsMistake(
   }
   const record = previous
     ? { ...previous, ...metadata, updatedAt: now.toISOString() }
-    : createMistakeRecord(metadata, now)
+    : createMistakeRecord(metadata, now, loadMatcherSettings().mistakeReviewCurves)
   upsertMistakeRecord(state, record)
   saveMistakeState(state)
-  undoGroupingWithRefresh(() => applySourceTags(record))
+  undoGroupingWithRefresh(() => applySourceTags(record, previous?.manualCategory))
   persistSource(sourceNotebookId)
   showHUD(previous ? "该题已在错题库中，记录已刷新" : "已标记为错题，可在错题浏览窗口中查看", 4)
   return record
@@ -189,7 +176,12 @@ export async function reviewMistakeById(recordId: string, level: MistakeLevel): 
   const state = loadMistakeState()
   const previous = state.records[recordId]
   if (!previous) throw new Error("错题记录不存在")
-  const record = reviewMistake(refreshRecord(previous), Number(level) as MistakeLevel)
+  const record = reviewMistake(
+    refreshRecord(previous),
+    Number(level) as MistakeLevel,
+    new Date(),
+    loadMatcherSettings().mistakeReviewCurves
+  )
   upsertMistakeRecord(state, record)
   saveMistakeState(state)
   undoGroupingWithRefresh(() => applySourceTags(record))
@@ -201,14 +193,25 @@ export async function setMistakeCategoryById(recordId: string, category: string)
   const state = loadMistakeState()
   const previous = state.records[recordId]
   if (!previous) throw new Error("错题记录不存在")
+  const manualCategory = cleanMistakeCategoryTag(category) || undefined
   const record = {
     ...refreshRecord(previous),
-    manualCategory: String(category ?? "").replace(/\s+/g, " ").trim().slice(0, 80) || undefined,
+    manualCategory,
     updatedAt: new Date().toISOString()
   }
   upsertMistakeRecord(state, record)
   saveMistakeState(state)
-  undoGroupingWithRefresh(() => applySourceTags(record))
+  if (manualCategory || previous.manualCategory) {
+    const settings = loadMatcherSettings()
+    saveMatcherSettings({
+      mistakeCustomCategories: [
+        ...settings.mistakeCustomCategories,
+        ...(previous.manualCategory ? [previous.manualCategory] : []),
+        ...(manualCategory ? [manualCategory] : [])
+      ]
+    })
+  }
+  undoGroupingWithRefresh(() => applySourceTags(record, previous.manualCategory))
   persistSource(record.sourceNotebookId)
   return record
 }
@@ -241,10 +244,13 @@ export interface MistakeWorkbenchData {
   levelCounts: number[]
   categories: Array<{ key: string; name: string; depth: number; count: number }>
   migratedFromLegacy: number
+  reviewCurves: MistakeReviewCurves
+  customCategories: string[]
 }
 
 export function mistakeWorkbenchData(): MistakeWorkbenchData {
   const state = loadMistakeState()
+  const matcherSettings = loadMatcherSettings()
   let changed = false
   let migratedFromLegacy = 0
   const records = Object.values(state.records).map(stored => {
@@ -284,13 +290,30 @@ export function mistakeWorkbenchData(): MistakeWorkbenchData {
       })
     }
   }
+  const savedCategories = matcherSettings.mistakeCustomCategories
+  const customCategories = Array.from(new Set([
+    ...savedCategories,
+    ...records.map(record => record.manualCategory).filter(Boolean) as string[]
+  ])).sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }))
+  if (JSON.stringify(customCategories) !== JSON.stringify(savedCategories)) {
+    saveMatcherSettings({ mistakeCustomCategories: customCategories })
+  }
   return {
     records,
     dueCount: records.filter(record => record.noteAvailable && isDue(record)).length,
     levelCounts: [0, 1, 2, 3, 4, 5].map(level => records.filter(record => record.level === level).length),
     categories: [...categoryCounts.values()],
-    migratedFromLegacy
+    migratedFromLegacy,
+    reviewCurves: matcherSettings.mistakeReviewCurves,
+    customCategories
   }
+}
+
+export function saveMistakeReviewCurves(value: unknown): MistakeReviewCurves {
+  const curves = normalizeMistakeReviewCurves(value)
+  saveMatcherSettings({ mistakeReviewCurves: curves })
+  showHUD("已保存错题复习天数；将在新标记或完成复习后生效", 4)
+  return curves
 }
 
 function media(hash: string): string | undefined {

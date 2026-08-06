@@ -13,7 +13,7 @@ MarginNote 4 插件，用于为题目脑图绑定答案脑图，选中题目卡�
 | 渠道 | 当前版本 | 说明 |
 | --- | --- | --- |
 | 正式版 | [`v1.9.7`](https://github.com/sinner7620/mn4_answer_matcher/releases/tag/v1.9.7) | 稳定的跨脑图答案匹配 |
-| Beta | [`v2.3.0-beta.1`](https://github.com/sinner7620/mn4_answer_matcher/releases/tag/v2.3.0-beta.1) | 答案匹配、正则规则匹配、章节顺序配对与错题管理 |
+| Beta | [`v2.3.1-beta.1`](https://github.com/sinner7620/mn4_answer_matcher/releases/tag/v2.3.1-beta.1) | 答案匹配、正则规则匹配、章节顺序配对与错题管理 |
 
 Beta 使用独立插件 ID，不会覆盖正式版。可以同时安装，但不建议同时启用，以免出现重复的卡片侧边按钮。
 

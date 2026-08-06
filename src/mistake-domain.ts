@@ -98,7 +98,9 @@ export const LEVEL_DESCRIPTIONS: Record<MistakeLevel, string> = {
   5: "已迁移"
 }
 
-export const REVIEW_CURVES: Record<MistakeLevel, number[]> = {
+export type MistakeReviewCurves = Record<MistakeLevel, number[]>
+
+export const REVIEW_CURVES: MistakeReviewCurves = {
   0: [1],
   1: [1],
   2: [3],
@@ -111,8 +113,13 @@ export function isMistakeLevel(value: number): value is MistakeLevel {
   return Number.isInteger(value) && value >= 0 && value <= 5
 }
 
-export function nextReviewTime(level: MistakeLevel, reviewCount: number, from = new Date()): Date {
-  const curve = REVIEW_CURVES[level]
+export function nextReviewTime(
+  level: MistakeLevel,
+  reviewCount: number,
+  from = new Date(),
+  curves: MistakeReviewCurves = REVIEW_CURVES
+): Date {
+  const curve = curves[level]
   const days = curve[Math.min(Math.max(0, reviewCount), curve.length - 1)]
   return new Date(from.getTime() + days * 86400000)
 }
@@ -133,7 +140,11 @@ export interface NewMistakeInput {
   legacyMistakeNoteId?: string
 }
 
-export function createMistakeRecord(input: NewMistakeInput, now = new Date()): MistakeRecord {
+export function createMistakeRecord(
+  input: NewMistakeInput,
+  now = new Date(),
+  curves: MistakeReviewCurves = REVIEW_CURVES
+): MistakeRecord {
   const at = now.toISOString()
   return {
     ...input,
@@ -143,13 +154,18 @@ export function createMistakeRecord(input: NewMistakeInput, now = new Date()): M
       : [input.sourceNotebookTitle, ...input.sourcePathTitles],
     createdAt: at,
     updatedAt: at,
-    nextReviewAt: nextReviewTime(input.level, 0, now).toISOString(),
+    nextReviewAt: nextReviewTime(input.level, 0, now, curves).toISOString(),
     reviewCount: 0,
     history: [{ at, level: input.level }]
   }
 }
 
-export function reviewMistake(record: MistakeRecord, level: MistakeLevel, now = new Date()): MistakeRecord {
+export function reviewMistake(
+  record: MistakeRecord,
+  level: MistakeLevel,
+  now = new Date(),
+  curves: MistakeReviewCurves = REVIEW_CURVES
+): MistakeRecord {
   const reviewCount = level === record.level ? record.reviewCount + 1 : 0
   const at = now.toISOString()
   return {
@@ -158,7 +174,7 @@ export function reviewMistake(record: MistakeRecord, level: MistakeLevel, now = 
     reviewCount,
     updatedAt: at,
     lastReviewedAt: at,
-    nextReviewAt: nextReviewTime(level, reviewCount, now).toISOString(),
+    nextReviewAt: nextReviewTime(level, reviewCount, now, curves).toISOString(),
     history: [...record.history, { at, level }]
   }
 }

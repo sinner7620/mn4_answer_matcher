@@ -32,6 +32,7 @@ import {
 import { scopeKey } from "../src/scope-key"
 import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
 import { buildSourceInsights } from "../src/source-insights"
+import { mistakeSourceTags, withoutMistakeSourceTags } from "../src/mistake-tags"
 import {
   categoryPathPrefixes,
   createMistakeRecord,
@@ -262,6 +263,17 @@ test("错题按来源章节和自然题号稳定排序", () => {
   }
   assert.deepEqual([base, other, first].sort(compareMistakeRecords).map(item => item.recordId), ["questions:s1", "questions:s2", "questions:s3"])
   assert.equal(mistakeCategoryLabel(first), "多元微分 › 基本概念题")
+})
+
+test("自定义错题分类直接作为标签并替换旧分类标签", () => {
+  assert.deepEqual(
+    mistakeSourceTags(["重点", "错题分类·计算题", "旧分类"], 2, "新分类", "旧分类"),
+    ["重点", "错题", "错题2级", "新分类"]
+  )
+  assert.deepEqual(
+    withoutMistakeSourceTags(["重点", "错题", "错题2级", "新分类"], "新分类"),
+    ["重点"]
+  )
 })
 
 test("错题来源分布按题目脑图根节点而不是学习集名称分组", () => {
@@ -509,6 +521,13 @@ test("S0–S5 掌握状态采用 Markdown 规定的复习间隔", () => {
   assert.equal(nextReviewTime(2, 0, now).toISOString(), "2026-07-20T00:00:00.000Z")
   assert.equal(nextReviewTime(4, 0, now).toISOString(), "2026-08-16T00:00:00.000Z")
   assert.equal(nextReviewTime(5, 0, now).toISOString(), "2026-09-15T00:00:00.000Z")
+})
+
+test("自定义错题复习天数会用于新标记和完成复习后的调度", () => {
+  const now = new Date("2026-07-17T00:00:00.000Z")
+  const curves = { 0: [2], 1: [4], 2: [6], 3: [8, 16], 4: [40], 5: [80] }
+  assert.equal(nextReviewTime(3, 0, now, curves).toISOString(), "2026-07-25T00:00:00.000Z")
+  assert.equal(nextReviewTime(3, 1, now, curves).toISOString(), "2026-08-02T00:00:00.000Z")
 })
 
 test("错题记录保存首次时间、复习历史和下次到期时间", () => {

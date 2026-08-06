@@ -173,6 +173,95 @@
   white-space: nowrap;
 }
 
+.mistakeLevelGuide .reviewDayEditor {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+}
+
+.mistakeLevelGuide .reviewDayEditor label {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.mistakeLevelGuide .reviewDayEditor label > small {
+  grid-column: 1 / -1;
+  margin: 0;
+  text-align: center;
+}
+
+.mistakeLevelGuide .reviewDayEditor input {
+  width: 48px;
+  height: 27px;
+  padding: 2px 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 11px;
+  text-align: center;
+}
+
+.mistakeLevelGuide footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.mistakeLevelGuide footer button {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #3157a4;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mistakeLevelGuide footer small {
+  color: #64748b;
+  font-size: 10px;
+}
+
+.customCategoryEditor {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto;
+  min-width: 0;
+  position: relative;
+}
+
+.customCategoryEditor::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid #64748b;
+  border-bottom: 1.5px solid #64748b;
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.detailControls .customCategoryEditor input {
+  border-radius: 8px 0 0 8px;
+}
+
+.detailControls .customCategoryEditor select {
+  width: 34px;
+  padding: 0 4px;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #fff;
+  color: #64748b;
+  font-size: 0;
+}
+
 @media (max-width: 590px) {
   .reviewIntro {
     display: block;

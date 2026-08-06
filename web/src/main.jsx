@@ -14,13 +14,14 @@ import "./export.css"
 
 const levelNames = ["未掌握", "已理解", "可完成", "已掌握", "已稳定", "已迁移"]
 const levelExplanations = [
-  ["完全不会，或看答案仍不理解", "1天后重做"],
-  ["能看懂答案，但无法独立完成", "1天后复习"],
-  ["能完成，但仍有提示、错误或明显超时", "3天后复习"],
-  ["能够独立、正确地完成", "7至14天后复习"],
-  ["连续多次正确，并能完成简单变式", "30天后抽查"],
-  ["能识别模型、讲清方法并解决变式", "60天后低频抽查"]
+  "完全不会，或看答案仍不理解",
+  "能看懂答案，但无法独立完成",
+  "能完成，但仍有提示、错误或明显超时",
+  "能够独立、正确地完成",
+  "连续多次正确，并能完成简单变式",
+  "能识别模型、讲清方法并解决变式"
 ]
+const defaultReviewCurves = [[1], [1], [3], [7, 14], [30], [60]]
 
 function levelLabel(level) {
   return `错题${level}级`
@@ -166,6 +167,7 @@ function App() {
         records={records}
         allRecords={data?.mistakes?.records || []}
         categories={data?.mistakes?.categories || []}
+        customCategories={data?.mistakes?.customCategories || []}
         query={query} setQuery={setQuery}
         level={level} setLevel={setLevel}
         categoryPath={categoryPath} setCategoryPath={setCategoryPath}
@@ -191,7 +193,6 @@ function App() {
 
       {tab === "settings" && <section className="settingsGroups">
         <SettingsGroup title="答案匹配" items={[
-          ["answer", "查看当前卡片答案", "显示当前选中卡片对应的完整答案", () => action("findCurrentAnswer", null, false)],
           ["bind", "同一学习集具体脑图绑定", data?.matching?.scopedBinding
             ? "已开启：每个题目脑图可绑定具体答案脑图，点击关闭"
             : "已关闭：点击开启，可选择同一学习集下的其他脑图", () => action("setScopedBinding", { enabled: !data?.matching?.scopedBinding })],
@@ -214,7 +215,7 @@ function App() {
           ["organize", "刷新错题分类索引", "重新读取脑图标题、父节点路径和答案绑定", () => action("repairMistakes")],
           ["download", "导出错题", "选择 PDF 或 Markdown 格式并预览导出", openExport]
         ]} />
-        <MistakeLevelGuide />
+        <MistakeLevelGuide reviewCurves={data?.mistakes?.reviewCurves} action={action} />
         <SettingsGroup title="插件" items={[
           ["info", "当前版本", `v${data?.version || "…"}`, () => action("notify", { message: `当前版本 v${data?.version || "…"}` }, false)],
           ["reset", "重置窗口位置与大小", "将工作台恢复到屏幕左上方的默认尺寸", () => action("resetPanelFrame", null, false)],
@@ -236,7 +237,7 @@ function MistakeBrowser(props) {
     </div>
     <div className="browserGrid">
       <div className="mistakeList">{records.map(item => <MistakeListItem key={item.recordId} item={item} selected={selectedId === item.recordId} onClick={() => openDetail(item.recordId)} />)}{!records.length && <Empty title="没有符合条件的错题" text="清空搜索或筛选条件后重试。" />}</div>
-      <div className="detailPane">{detail ? <MistakeDetail detail={detail} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
+      <div className="detailPane">{detail ? <MistakeDetail detail={detail} customCategories={props.customCategories} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
     </div>
   </section>
 }
@@ -367,7 +368,7 @@ function DueReviewList({ records, action }) {
   </section>
 }
 
-function MistakeDetail({ detail, action, reloadDetail, onRemoved }) {
+function MistakeDetail({ detail, customCategories, action, reloadDetail, onRemoved }) {
   const [view, setView] = useState("question")
   const [answerIndex, setAnswerIndex] = useState(0)
   const [category, setCategory] = useState(detail.record.manualCategory || "")
@@ -387,7 +388,13 @@ function MistakeDetail({ detail, action, reloadDetail, onRemoved }) {
     <div className="detailHeader"><div><small>{detail.record.sourceNotebookTitle}</small><h2>{detail.record.sourceTitle}</h2><p>{(detail.record.sourcePathTitles || []).join(" › ") || "脑图根节点"}</p><small>添加于 {formatDate(detail.record.createdAt)} · {reviewCountdown(detail.record.nextReviewAt)}</small></div><button onClick={() => action("openSource", { recordId: detail.record.recordId }, false)}>定位原题</button></div>
     <div className="detailControls">
       <select value={detail.record.level} onChange={async event => { await action("reviewMistake", { recordId: detail.record.recordId, level: Number(event.target.value) }); await reloadDetail() }}>{levelNames.map((name, index) => <option key={name} value={index}>{levelLabel(index)} · {name}</option>)}</select>
-      <input value={category} onChange={event => setCategory(event.target.value)} placeholder="自定义分类（可留空）" /><button onClick={saveCategory}>保存分类</button><button className="danger" onClick={remove}>{removeArmed ? "再次确认" : "取消错题"}</button>
+      <div className="customCategoryEditor">
+        <input value={category} onChange={event => setCategory(event.target.value)} placeholder="输入自定义分类（可留空）" />
+        <select value="" aria-label="选择自定义分类" onChange={event => event.target.value && setCategory(event.target.value)}>
+          <option value="" disabled hidden></option>
+          {(customCategories || []).map(item => <option value={item} key={item}>{item}</option>)}
+        </select>
+      </div><button onClick={saveCategory}>保存分类</button><button className="danger" onClick={remove}>{removeArmed ? "再次确认" : "取消错题"}</button>
     </div>
     <div className="detailTabs"><button className={view === "question" ? "active" : ""} onClick={() => setView("question")}>完整原题</button><button className={view === "answer" ? "active" : ""} onClick={() => setView("answer")}>对应答案 {detail.answers?.length ? `(${detail.answers.length})` : ""}</button>{view === "answer" && detail.answers?.length > 1 && <select value={answerIndex} onChange={event => setAnswerIndex(Number(event.target.value))}>{detail.answers.map((item, index) => <option key={item.id} value={index}>{item.title} · {item.path}</option>)}</select>}</div>
     <div className="cardFrame">{view === "question" ? <iframe title="错题原题" srcDoc={detail.questionHtml} /> : answer ? <iframe title="错题答案" srcDoc={answer.html} /> : <Empty title={detail.answerStatus === "unbound" ? "尚未绑定答案脑图" : detail.answerStatus === "index-missing" ? "答案索引尚未建立" : "没有匹配答案"} text="可从经典菜单绑定答案脑图或刷新答案索引。" />}</div>
@@ -453,14 +460,44 @@ function RegexMatchingSettings({ matching, action }) {
   </section>
 }
 
-function MistakeLevelGuide() {
+function MistakeLevelGuide({ reviewCurves, action }) {
+  const normalized = defaultReviewCurves.map((fallback, level) =>
+    fallback.map((days, index) => Number(reviewCurves?.[level]?.[index]) || days))
+  const [curves, setCurves] = useState(normalized)
+  const [saved, setSaved] = useState("")
+  useEffect(() => { setCurves(normalized) }, [JSON.stringify(reviewCurves)])
+
+  function update(level, index, value) {
+    const next = curves.map(curve => [...curve])
+    next[level][index] = value
+    setCurves(next)
+    setSaved("")
+  }
+
+  async function save() {
+    const valid = curves.map((curve, level) => curve.map((value, index) => {
+      const days = Number(value)
+      return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : defaultReviewCurves[level][index]
+    }))
+    const result = await action("saveMistakeReviewCurves", { curves: valid })
+    if (result) {
+      setCurves(valid)
+      setSaved("已保存；将在新标记或完成复习后生效")
+    }
+  }
+
   return <section className="mistakeLevelGuide">
-    <header><h2>错题分类说明</h2><p>分类表示当前掌握程度；复习完成后选择新的级别，系统自动安排下次复习。</p></header>
+    <header><h2>错题分类说明</h2><p>分类表示当前掌握程度；可自定义1–3650天，复习完成后按所选级别安排下次复习。</p></header>
     <div>{levelNames.map((name, level) => <article key={name}>
       <span className={`level level${level}`}>{level}级</span>
-      <span><strong>{levelLabel(level)} · {name}</strong><small>{levelExplanations[level][0]}</small></span>
-      <em>{levelExplanations[level][1]}</em>
+      <span><strong>{levelLabel(level)} · {name}</strong><small>{levelExplanations[level]}</small></span>
+      <span className="reviewDayEditor">{curves[level].map((days, index) => <label key={index}>
+        {curves[level].length > 1 && <small>{index === 0 ? "首次" : "后续"}</small>}
+        <input type="number" min="1" max="3650" step="1" value={days} onChange={event => update(level, index, event.target.value)} />
+        <em>天后复习</em>
+      </label>)}</span>
     </article>)}</div>
+    <footer><button onClick={save}>保存复习天数</button>{saved && <small>{saved}</small>}</footer>
   </section>
 }
 

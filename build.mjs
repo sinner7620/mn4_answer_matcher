@@ -66,7 +66,7 @@ const manifest = {
     ? "marginnote.extension.mn4-answer-matcher.beta"
     : "marginnote.extension.mn4-answer-matcher",
   author: "frank",
-  title: betaChannel ? "跨脑图卡片匹配 Beta" : "跨脑图卡片匹配",
+  title: betaChannel ? "CardLink 跨脑图卡片匹配 Beta" : "跨脑图卡片匹配",
   version: pkg.version,
   marginnote_version_min: "4.0.0",
   cert_key: ""
