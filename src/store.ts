@@ -1,9 +1,10 @@
 import { getLocalDataByKey, setLocalDataByKey } from "marginnote"
+import { Bindings } from "./binding"
+
+export * from "./binding"
 
 const STORAGE_KEY = "mn4-answer-matcher.bindings.v1"
 const BACKUP_KEY = "marginnote.extension.mn4-answer-matcher.bindings.v1"
-
-export type Bindings = Record<string, string>
 
 export function loadBindings(): Bindings {
   let value = getLocalDataByKey(STORAGE_KEY)

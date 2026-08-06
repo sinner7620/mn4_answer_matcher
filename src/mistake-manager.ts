@@ -2,7 +2,9 @@ import { delay, MN, NodeNote, popup, setTimeInterval, showHUD, undoGroupingWithR
 import type { MbBookNote } from "marginnote"
 import { renderCardHtml } from "./card-html"
 import { answerCardHtml, findAnswers } from "./matcher"
-import { loadBindings } from "./store"
+import { BindingTarget, getBindingForMode, loadBindings, targetForMode } from "./store"
+import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
+import { loadMatcherSettings } from "./settings"
 import {
   compareMistakeRecords,
   automaticCategoryPath,
@@ -43,6 +45,13 @@ function pathTitles(question: NodeNote): string[] {
   } catch {
     return []
   }
+}
+
+function answerBinding(sourceNotebookId: string, sourceRootNodeId: string): BindingTarget | undefined {
+  const bindings = loadBindings()
+  const scoped = loadMatcherSettings().allowSameStudySetMindMap
+  const target = getBindingForMode(bindings, sourceNotebookId, sourceRootNodeId, scoped)
+  return target && targetForMode(target, scoped)
 }
 
 function cleanTag(value: string): string {
@@ -86,13 +95,15 @@ function refreshRecord(record: MistakeRecord): MistakeRecord {
   if (!note) return record
   const node = new NodeNote(note, record.sourceNotebookId)
   const sourcePathTitles = pathTitles(node)
+  const binding = answerBinding(record.sourceNotebookId, nodeIdentifier(mindMapRoot(node)))
   return {
     ...record,
     sourceNotebookTitle: notebookTitle(record.sourceNotebookId),
     sourceTitle: node.title?.trim() || record.sourceTitle || "未命名错题",
     sourcePathTitles,
     categoryPath: [notebookTitle(record.sourceNotebookId), ...sourcePathTitles],
-    answerNotebookId: loadBindings()[record.sourceNotebookId] ?? record.answerNotebookId
+    answerNotebookId: binding?.notebookId ?? record.answerNotebookId,
+    answerRootNodeId: binding?.rootNodeId ?? record.answerRootNodeId
   }
 }
 
@@ -112,6 +123,7 @@ export async function markQuestionAsMistake(
   const state = loadMistakeState()
   const previous = recordForSource(state, sourceNotebookId, sourceNoteId)
   const now = new Date()
+  const binding = answerBinding(sourceNotebookId, nodeIdentifier(mindMapRoot(question)))
   const metadata = {
     sourceNoteId,
     sourceNotebookId,
@@ -119,7 +131,8 @@ export async function markQuestionAsMistake(
     sourceTitle: question.title?.trim() || "未命名错题",
     sourcePathTitles: pathTitles(question),
     categoryPath: [notebookTitle(sourceNotebookId), ...pathTitles(question)],
-    answerNotebookId: loadBindings()[sourceNotebookId],
+    answerNotebookId: binding?.notebookId,
+    answerRootNodeId: binding?.rootNodeId,
     level: requestedLevel ?? previous?.level ?? 0 as MistakeLevel
   }
   const record = previous

@@ -8,6 +8,7 @@ import {
   onMistakeToolbarClick,
   onMistakeLinkToolbarClick,
   onCloseAnswerCard,
+  onNotebookPickerAction,
   openMenu,
   queryAddonCommandStatus
 } from "./plugin"
@@ -24,6 +25,7 @@ const Extension = JSB.defineClass(
     onCloseAnswerCard,
     onAnswerCardPan,
     onAnswerCardResize,
+    onNotebookPickerAction,
     openMenu
   },
   lifecycle.classMethods

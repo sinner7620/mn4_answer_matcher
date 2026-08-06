@@ -6,13 +6,15 @@ MarginNote 4 插件，用于为题目脑图绑定答案脑图，选中题目卡�
 
 在 MarginNote 4 插件页导入。
 
-插件每 12 小时自动检查一次 [GitHub Releases](https://github.com/sinner7620/mn4_answer_matcher/releases)，发现正式版或测试版后可直接下载并交给 MarginNote 覆盖安装；也可从插件菜单选择“检查插件更新”。覆盖升级会保留原有脑图绑定记录，并在安装前额外写入恢复备份。
+> 正式版 v1.9.8 已通过 MarginNote 官方认证。
 
-## 使用
+插件每 12 小时自动检查一次 [GitHub Releases](https://github.com/sinner7620/mn4_answer_matcher/releases)，发现正式版或测试版后可选择直接下载并交给 MarginNote 覆盖安装，或保存 `.mnaddon` 文件后手动安装；也可从插件菜单选择“检查插件更新”。覆盖升级会保留原有脑图绑定记录，并在安装前额外写入恢复备份。
+
+## 版本
 
 | 渠道 | 当前版本 | 说明 |
 | --- | --- | --- |
-| 正式版 | [`v1.9.6`](https://github.com/sinner7620/mn4_answer_matcher/releases/tag/v1.9.6) | 跨脑图答案匹配 |
+| 正式版 | [`v1.9.8`](https://github.com/sinner7620/mn4_answer_matcher/releases/tag/v1.9.8) | 跨脑图答案匹配（已通过官方认证） |
 | Beta | [`v2.2.0-beta.2`](https://github.com/sinner7620/mn4_answer_matcher/releases/tag/v2.2.0-beta.2) | 跨脑图答案匹配与错题管理 |
 
 Beta 使用独立插件 ID，不会覆盖正式版。可以同时安装，但不建议同时启用，以免出现重复的卡片侧边按钮。

@@ -16,6 +16,7 @@ export interface MistakeRecord {
   categoryPath: string[]
   manualCategory?: string
   answerNotebookId?: string
+  answerRootNodeId?: string
   level: MistakeLevel
   createdAt: string
   updatedAt: string

@@ -63,7 +63,8 @@ async function fetchNewestRelease(): Promise<GitHubRelease | undefined> {
   const currentUsesPrereleaseChannel = __APP_VERSION__.includes("-")
   return releases
     .filter((release: GitHubRelease) =>
-      !release.draft && releaseVersion(release) &&
+      !release.draft &&
+      releaseVersion(release) &&
       (currentUsesPrereleaseChannel || !release.prerelease)
     )
     .sort((a: GitHubRelease, b: GitHubRelease) =>
@@ -107,6 +108,7 @@ async function downloadAndInstall(release: GitHubRelease, asset: ReleaseAsset): 
 
 async function downloadAndSave(release: GitHubRelease, asset: ReleaseAsset): Promise<void> {
   const path = await downloadUpdate(release, asset)
+  // The user may install this file later, so create the persistent binding backup now.
   backupBindings()
   showHUD("更新包已下载，请选择保存位置；之后点开 .mnaddon 文件手动安装", 5)
   saveFile(path, "public.data")
