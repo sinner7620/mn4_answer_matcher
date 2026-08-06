@@ -223,6 +223,7 @@ test("PaintNote 同时包含底图和 drawing 时会叠加显示手写层", () =
 
 test("OTA 版本比较支持正式版和 GitHub 测试版标签", () => {
   assert.equal(compareVersions("v1.9.0", "1.8.9"), 1)
+  assert.equal(compareVersions("1.9.81", "1.9.8"), 1)
   assert.equal(compareVersions("1.9.1-beta.2", "1.9.1-beta.1"), 1)
   assert.equal(compareVersions("1.9.1", "1.9.1-beta.2"), 1)
   assert.equal(compareVersions("v1.9.0", "1.9.0"), 0)

@@ -44,6 +44,7 @@ import { checkForUpdates, scheduleAutomaticUpdateCheck } from "./updater"
 import {
   chooseNotebook,
   closeNotebookPicker,
+  NOTEBOOK_PICKER_BACK_ID,
   onNotebookPickerAction
 } from "./notebook-picker"
 
@@ -149,16 +150,28 @@ async function bindAnswerStudySet(questionNotebookId: string): Promise<void> {
       title: item.title?.trim() || "未命名学习集"
     })))
     if (!selected) return
+    if (selected.id === NOTEBOOK_PICKER_BACK_ID) {
+      await openMenu()
+      return
+    }
     answerNotebookId = selected.id
   } else {
     const result = await select(
-      notebooks.map((item, index) => `${index + 1}. ${item.title?.trim() || "未命名学习集"}`),
+      [
+        "取消",
+        "返回",
+        ...notebooks.map((item, index) => `${index + 1}. ${item.title?.trim() || "未命名学习集"}`)
+      ],
       "绑定答案学习集",
       "将索引所选学习集内的全部卡片",
-      true
+      false
     )
-    if (result.index < 0) return
-    answerNotebookId = notebooks[result.index].topicId!
+    if (result.index <= 0) return
+    if (result.index === 1) {
+      await openMenu()
+      return
+    }
+    answerNotebookId = notebooks[result.index - 2].topicId!
   }
   const bindings = loadBindings()
   bindings[questionNotebookId] = answerNotebookId
@@ -196,16 +209,28 @@ async function bindAnswerNotebook(): Promise<void> {
         : item.title?.trim() || "未命名学习集"
     })))
     if (!selected) return
+    if (selected.id === NOTEBOOK_PICKER_BACK_ID) {
+      await openMenu()
+      return
+    }
     targetNotebookId = selected.id
   } else {
     const result = await select(
-      notebooks.map((item, index) => `${index + 1}. ${item.title?.trim() || "未命名学习集"}${item.topicId === source.notebookId ? "（当前）" : ""}`),
+      [
+        "取消",
+        "返回",
+        ...notebooks.map((item, index) => `${index + 1}. ${item.title?.trim() || "未命名学习集"}${item.topicId === source.notebookId ? "（当前）" : ""}`)
+      ],
       "选择答案所在学习集",
       "答案脑图可以位于当前学习集",
-      true
+      false
     )
-    if (result.index < 0) return
-    targetNotebookId = notebooks[result.index].topicId!
+    if (result.index <= 0) return
+    if (result.index === 1) {
+      await openMenu()
+      return
+    }
+    targetNotebookId = notebooks[result.index - 2].topicId!
   }
 
   HUDController.show("正在读取该学习集的脑图，请稍候…")
@@ -228,20 +253,32 @@ async function bindAnswerNotebook(): Promise<void> {
       title: item.title
     })))
     if (!selected) return
+    if (selected.id === NOTEBOOK_PICKER_BACK_ID) {
+      await bindAnswerNotebook()
+      return
+    }
     target = candidates[Number(selected.id)]
   } else {
     // MarginNote's native picker is stable and vertically laid out on iPad.
     // The custom UIKit overlay is Mac-only because some of its bridged properties
     // can terminate the iPad host process before JavaScript can catch an error.
-    const options = candidates.map((item, index) => `${index + 1}. ${item.title}`)
+    const options = [
+      "取消",
+      "返回",
+      ...candidates.map((item, index) => `${index + 1}. ${item.title}`)
+    ]
     const result = await select(
       options,
       "绑定答案脑图",
       "请选择与当前题目脑图对应的答案脑图",
-      true
+      false
     )
-    if (result.index < 0) return
-    target = candidates[result.index]
+    if (result.index <= 0) return
+    if (result.index === 1) {
+      await bindAnswerNotebook()
+      return
+    }
+    target = candidates[result.index - 2]
   }
   const bindings = loadBindings()
   setBinding(bindings, source.notebookId, source.rootNodeId, {
@@ -279,8 +316,18 @@ async function chooseMatch(
       answer.titles[0] || "未命名卡片"
     }${marker}${preview ? ` · ${preview}` : ""}`
   })
-  const result = await select(options, `找到 ${matches.length} 个答案`, "请选择要展示的答案卡片", true)
-  return result.index < 0 ? undefined : matches[result.index]
+  const result = await select(
+    ["取消", "返回", ...options],
+    `找到 ${matches.length} 个答案`,
+    "请选择要展示的答案卡片",
+    false
+  )
+  if (result.index <= 0) return undefined
+  if (result.index === 1) {
+    await openMenu()
+    return undefined
+  }
+  return matches[result.index - 2]
 }
 
 async function showAnswer(questionTitle: string, answer: IndexedAnswer): Promise<void> {
@@ -306,10 +353,11 @@ export async function findCurrentAnswer(): Promise<void> {
     const shouldBind = await popup({
       title: "尚未绑定答案脑图",
       message: "当前脑图还没有对应的答案脑图。",
-      buttons: ["取消", "立即绑定"],
-      canCancel: true
+      buttons: ["取消", "返回", "立即绑定"],
+      canCancel: false
     })
-    if (shouldBind.buttonIndex === 1) await bindAnswerNotebook()
+    if (shouldBind.buttonIndex === 1) await openMenu()
+    else if (shouldBind.buttonIndex === 2) await bindAnswerNotebook()
     return
   }
 
@@ -387,14 +435,19 @@ async function unbindCurrent(): Promise<void> {
   if (!answerTarget) return showHUD("当前脑图没有绑定")
   const result = await popup({
     title: "解除绑定",
-    message: scopedBindingEnabled()
-      ? `题目脑图：${source?.title || "当前脑图"}\n答案脑图：${targetTitle(answerTarget)}`
-      : `题目学习集：${notebookTitle(questionNotebookId)}\n答案学习集：${notebookTitle(answerTarget.notebookId)}`,
-    buttons: ["取消", "解除绑定"],
-    canCancel: true,
+    message: `题目脑图：${source
+      ? `${notebookTitle(source.notebookId)} › ${source.title}`
+      : `${notebookTitle(questionNotebookId)} › 当前脑图`}\n答案脑图：${targetTitle(answerTarget)}`,
+    buttons: ["取消", "返回", "解除绑定"],
+    canCancel: false,
     multiLine: true
   })
-  if (result.buttonIndex !== 1) return
+  if (result.buttonIndex === 0) return
+  if (result.buttonIndex === 1) {
+    await openMenu()
+    return
+  }
+  if (result.buttonIndex !== 2) return
   if (!scopedBindingEnabled() && normalizeBinding(bindings[questionNotebookId])) {
     removeBinding(bindings, questionNotebookId)
   } else {
@@ -411,9 +464,15 @@ export async function openMenu(): Promise<void> {
   const source = sourceMindMap()
   const answerTarget = bindingForSource(questionNotebookId, source?.rootNodeId)
   const scoped = scopedBindingEnabled()
-  const binding = answerTarget
-    ? scoped ? targetTitle(answerTarget) : notebookTitle(answerTarget.notebookId)
-    : "未绑定"
+  const binding = answerTarget ? targetTitle(answerTarget) : "未绑定"
+  const questionMindMap = source
+    ? `${notebookTitle(source.notebookId)} › ${source.title}`
+    : `${notebookTitle(questionNotebookId)} › 请先选中脑图中的卡片`
+  const menuSummary = [
+    `当前版本：v${__APP_VERSION__}`,
+    `题目脑图：${questionMindMap}`,
+    `答案脑图：${binding}`
+  ].join("\n")
   const result = await select(
     [
       "查找当前卡片答案",
@@ -424,7 +483,7 @@ export async function openMenu(): Promise<void> {
       "解除当前绑定"
     ],
     "答案匹配",
-    `当前绑定：${binding}`,
+    menuSummary,
     true
   )
   if (result.index === 0) await runSafely(findCurrentAnswer)
@@ -434,7 +493,10 @@ export async function openMenu(): Promise<void> {
     saveMatcherSettings({ allowSameStudySetMindMap: !scoped })
     showHUD(!scoped ? "已开启：可绑定同学习集内的具体脑图" : "已关闭：恢复按整个答案学习集匹配", 4)
   }
-  else if (result.index === 4) await checkForUpdates(true)
+  else if (result.index === 4) {
+    const updateResult = await checkForUpdates(true)
+    if (updateResult === "back") await openMenu()
+  }
   else if (result.index === 5) await runSafely(unbindCurrent)
 }
 
