@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>答案与错题工作台</title><link rel="stylesheet" href="./app.css"></head><body><div id="root"></div><script src="./app.js"></script><script>
+(function(){
+  var startX=0,startY=0;
+  var selector='.mistakeList,.overviewPage,.reviewPage,.settingsPage,.exportPage,.categoryPopover,.detailCategoryMenu,.topNav';
+  function closestScrollable(node){
+    while(node&&node!==document.body){
+      if(node.matches&&node.matches(selector)) return node;
+      node=node.parentElement;
+    }
+    return null;
+  }
+  function resetRootScroll(){
+    try{ if(window.scrollX||window.scrollY) window.scrollTo(0,0); }catch(e){}
+    try{ document.documentElement.scrollTop=0;document.documentElement.scrollLeft=0; }catch(e){}
+    try{ document.body.scrollTop=0;document.body.scrollLeft=0; }catch(e){}
+  }
+  window.addEventListener('scroll',resetRootScroll,{capture:true,passive:true});
+  document.addEventListener('touchstart',function(ev){
+    if(!ev.touches||ev.touches.length!==1)return;
+    startX=ev.touches[0].clientX;startY=ev.touches[0].clientY;
+  },{capture:true,passive:true});
+  document.addEventListener('touchmove',function(ev){
+    if(!ev.touches||ev.touches.length!==1)return;
+    var t=ev.touches[0],dx=t.clientX-startX,dy=t.clientY-startY;
+    var scroller=closestScrollable(ev.target);
+    if(!scroller){ev.preventDefault();resetRootScroll();return;}
+    var horizontal=scroller.classList&&scroller.classList.contains('topNav');
+    if(horizontal){
+      if(Math.abs(dx)<=Math.abs(dy)||scroller.scrollWidth<=scroller.clientWidth+1){ev.preventDefault();return;}
+      var atLeft=scroller.scrollLeft<=0,atRight=scroller.scrollLeft+scroller.clientWidth>=scroller.scrollWidth-1;
+      if((atLeft&&dx>0)||(atRight&&dx<0))ev.preventDefault();
+      return;
+    }
+    if(Math.abs(dy)<Math.abs(dx)){ev.preventDefault();return;}
+    if(scroller.scrollHeight<=scroller.clientHeight+1){ev.preventDefault();return;}
+    var atTop=scroller.scrollTop<=0,atBottom=scroller.scrollTop+scroller.clientHeight>=scroller.scrollHeight-1;
+    if((atTop&&dy>0)||(atBottom&&dy<0))ev.preventDefault();
+  },{capture:true,passive:false});
+})();
+</script>
+<script>
+(function(){
+  function closeOpenTagPicker(ev){
+    var open=document.querySelector('.detailTagPicker.open');
+    if(!open)return;
+    var target=ev.target;
+    if(target&&open.contains(target))return;
+    var trigger=open.querySelector('.detailTagTrigger');
+    if(trigger)trigger.click();
+  }
+  document.addEventListener('touchstart',closeOpenTagPicker,{capture:true,passive:true});
+  document.addEventListener('mousedown',closeOpenTagPicker,true);
+})();
+</script>
+<script>
+/* iOS UIWebView can synthesize the delayed click at the finger-up position.
+   Pin a tag tap to the exact row touched at touchstart, and suppress the delayed native click. */
+(function(){
+  var candidate=null,startX=0,startY=0,moved=false,suppressUntil=0;
+  function optionFrom(node){
+    while(node&&node!==document.body){
+      if(node.classList&&node.classList.contains('detailTagOption')) return node;
+      node=node.parentElement;
+    }
+    return null;
+  }
+  document.addEventListener('touchstart',function(ev){
+    if(!ev.touches||ev.touches.length!==1){candidate=null;return;}
+    candidate=optionFrom(ev.target);
+    moved=false;
+    if(candidate){startX=ev.touches[0].clientX;startY=ev.touches[0].clientY;}
+  },{capture:true,passive:true});
+  document.addEventListener('touchmove',function(ev){
+    if(!candidate||!ev.touches||ev.touches.length!==1)return;
+    var dx=ev.touches[0].clientX-startX,dy=ev.touches[0].clientY-startY;
+    if(dx*dx+dy*dy>64)moved=true;
+  },{capture:true,passive:true});
+  document.addEventListener('touchcancel',function(){candidate=null;moved=false;},{capture:true,passive:true});
+  document.addEventListener('touchend',function(ev){
+    if(!candidate)return;
+    var button=candidate,shouldTap=!moved;
+    candidate=null;moved=false;
+    if(!shouldTap)return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    suppressUntil=Date.now()+800;
+    button.click();
+  },{capture:true,passive:false});
+  document.addEventListener('click',function(ev){
+    if(Date.now()>suppressUntil||!ev.isTrusted)return;
+    if(!optionFrom(ev.target))return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();
+  },true);
+})();
+</script></body></html>

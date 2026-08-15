@@ -1,6 +1,6 @@
 node_modules/
 dist/
-web-dist/
+/web-dist/
 *.log
 # 本地开发杂项（不进 release）
 .playwright-cli/
