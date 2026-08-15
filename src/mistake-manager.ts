@@ -78,6 +78,13 @@ function persistSource(notebookId: string): void {
   MN.db.setNotebookSyncDirty(notebookId)
 }
 
+function persistSources(notebookIds: Iterable<string>): void {
+  const uniqueIds = Array.from(new Set(notebookIds)).filter(Boolean)
+  if (!uniqueIds.length) return
+  MN.db.savedb()
+  for (const notebookId of uniqueIds) MN.db.setNotebookSyncDirty(notebookId)
+}
+
 function refreshRecord(record: MistakeRecord): MistakeRecord {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) return record
@@ -142,6 +149,89 @@ export async function markQuestionAsMistake(
   return record
 }
 
+export interface BatchMistakeResult {
+  added: number
+  updated: number
+  failed: number
+  records: MistakeRecord[]
+}
+
+/**
+ * Mark the current mind-map selection as mistakes in one database transaction.
+ * Existing records are refreshed without losing their review history.
+ */
+export async function markQuestionsAsMistakes(
+  questions: NodeNote[],
+  sourceNotebookId: string,
+  requestedLevel: MistakeLevel
+): Promise<BatchMistakeResult> {
+  const state = loadMistakeState()
+  const curves = loadMatcherSettings().mistakeReviewCurves
+  const seen = new Set<string>()
+  const prepared: Array<{
+    record: MistakeRecord
+    previous?: MistakeRecord
+  }> = []
+  let failed = 0
+
+  for (const question of questions) {
+    try {
+      const sourceNoteId = noteId(question.note)
+      if (!sourceNoteId) throw new Error("所选卡片没有 noteId，无法标记")
+      if (seen.has(sourceNoteId)) continue
+      seen.add(sourceNoteId)
+
+      const previous = recordForSource(state, sourceNotebookId, sourceNoteId)
+      const now = new Date()
+      const sourceRoot = mindMapRoot(question)
+      const sourceRootNodeId = nodeIdentifier(sourceRoot)
+      const binding = answerBinding(sourceNotebookId, sourceRootNodeId)
+      const metadata = {
+        sourceNoteId,
+        sourceNotebookId,
+        sourceNotebookTitle: notebookTitle(sourceNotebookId),
+        sourceRootNodeId,
+        sourceRootTitle: sourceRoot.title?.trim() || "未命名题目脑图",
+        sourceTitle: question.title?.trim() || "未命名错题",
+        sourcePathTitles: pathTitles(question),
+        categoryPath: [notebookTitle(sourceNotebookId), ...pathTitles(question)],
+        answerNotebookId: binding?.notebookId,
+        answerRootNodeId: binding?.rootNodeId,
+        level: requestedLevel
+      }
+      const record = previous
+        ? { ...previous, ...metadata, updatedAt: now.toISOString() }
+        : createMistakeRecord(metadata, now, curves)
+      upsertMistakeRecord(state, record)
+      prepared.push({ record, previous })
+    } catch (error) {
+      failed++
+      MN.error(error)
+    }
+  }
+
+  if (prepared.length) {
+    saveMistakeState(state)
+    undoGroupingWithRefresh(() => {
+      for (const { record, previous } of prepared) {
+        try {
+          applySourceTags(record, previous?.manualCategory)
+        } catch (error) {
+          MN.error(error)
+        }
+      }
+    })
+    persistSource(sourceNotebookId)
+  }
+
+  return {
+    added: prepared.filter(item => !item.previous).length,
+    updated: prepared.filter(item => Boolean(item.previous)).length,
+    failed,
+    records: prepared.map(item => item.record)
+  }
+}
+
 export function mistakeRecordForSourceQuestion(
   question: NodeNote,
   currentNotebookId: string
@@ -177,7 +267,7 @@ export async function reviewMistakeById(recordId: string, level: MistakeLevel): 
   const previous = state.records[recordId]
   if (!previous) throw new Error("错题记录不存在")
   const record = reviewMistake(
-    refreshRecord(previous),
+    previous,
     Number(level) as MistakeLevel,
     new Date(),
     loadMatcherSettings().mistakeReviewCurves
@@ -189,13 +279,64 @@ export async function reviewMistakeById(recordId: string, level: MistakeLevel): 
   return record
 }
 
+export interface BatchMistakeChangeResult {
+  changed: number
+  missing: number
+  records: MistakeRecord[]
+}
+
+function uniqueRecordIds(recordIds: unknown): string[] {
+  if (!Array.isArray(recordIds)) return []
+  return Array.from(new Set(recordIds.map(String).map(id => id.trim()).filter(Boolean)))
+}
+
+export async function reviewMistakesByIds(
+  recordIds: unknown,
+  level: MistakeLevel
+): Promise<BatchMistakeChangeResult> {
+  if (!isMistakeLevel(Number(level))) throw new Error("错题分类必须为错题0级至错题5级")
+  const ids = uniqueRecordIds(recordIds)
+  if (!ids.length) throw new Error("请至少选择一道错题")
+  const state = loadMistakeState()
+  const curves = loadMatcherSettings().mistakeReviewCurves
+  const now = new Date()
+  const records: MistakeRecord[] = []
+  let missing = 0
+
+  for (const recordId of ids) {
+    const previous = state.records[recordId]
+    if (!previous) {
+      missing++
+      continue
+    }
+    const record = reviewMistake(previous, Number(level) as MistakeLevel, now, curves)
+    upsertMistakeRecord(state, record)
+    records.push(record)
+  }
+
+  if (records.length) {
+    saveMistakeState(state)
+    undoGroupingWithRefresh(() => {
+      for (const record of records) {
+        try {
+          applySourceTags(record)
+        } catch (error) {
+          MN.error(error)
+        }
+      }
+    })
+    persistSources(records.map(record => record.sourceNotebookId))
+  }
+  return { changed: records.length, missing, records }
+}
+
 export async function setMistakeCategoryById(recordId: string, category: string): Promise<MistakeRecord> {
   const state = loadMistakeState()
   const previous = state.records[recordId]
   if (!previous) throw new Error("错题记录不存在")
   const manualCategory = cleanMistakeCategoryTag(category) || undefined
   const record = {
-    ...refreshRecord(previous),
+    ...previous,
     manualCategory,
     updatedAt: new Date().toISOString()
   }
@@ -251,27 +392,20 @@ export interface MistakeWorkbenchData {
 export function mistakeWorkbenchData(): MistakeWorkbenchData {
   const state = loadMistakeState()
   const matcherSettings = loadMatcherSettings()
-  let changed = false
   let migratedFromLegacy = 0
   const records = Object.values(state.records).map(stored => {
-    const current = refreshRecord(stored)
-    if (current.legacyMistakeNoteId) migratedFromLegacy++
-    if (JSON.stringify(current) !== JSON.stringify(stored)) {
-      state.records[current.recordId] = current
-      changed = true
-    }
-    const automaticOptions = categoryPathPrefixes(automaticCategoryPath(current))
-    const manualOption = current.manualCategory
-      ? [{ key: `manual:${current.manualCategory}`, label: `自定义 › ${current.manualCategory}`, depth: 0 }]
+    if (stored.legacyMistakeNoteId) migratedFromLegacy++
+    const automaticOptions = categoryPathPrefixes(automaticCategoryPath(stored))
+    const manualOption = stored.manualCategory
+      ? [{ key: `manual:${stored.manualCategory}`, label: `自定义 › ${stored.manualCategory}`, depth: 0 }]
       : []
     return {
-      ...current,
-      noteAvailable: Boolean(MN.db.getNoteById(current.sourceNoteId)),
-      categoryLabel: mistakeCategoryLabel(current),
+      ...stored,
+      noteAvailable: Boolean(MN.db.getNoteById(stored.sourceNoteId)),
+      categoryLabel: mistakeCategoryLabel(stored),
       categoryKeys: [...automaticOptions, ...manualOption].map(option => option.key)
     }
   }).sort(compareMistakeRecords)
-  if (changed) saveMistakeState(state)
   const categoryCounts = new Map<string, { key: string; name: string; depth: number; count: number }>()
   for (const record of records) {
     const options = [
@@ -307,6 +441,39 @@ export function mistakeWorkbenchData(): MistakeWorkbenchData {
     reviewCurves: matcherSettings.mistakeReviewCurves,
     customCategories
   }
+}
+
+export async function removeMistakesByIds(recordIds: unknown): Promise<BatchMistakeChangeResult> {
+  const ids = uniqueRecordIds(recordIds)
+  if (!ids.length) throw new Error("请至少选择一道错题")
+  const state = loadMistakeState()
+  const records: MistakeRecord[] = []
+  let missing = 0
+
+  for (const recordId of ids) {
+    const record = state.records[recordId]
+    if (!record) {
+      missing++
+      continue
+    }
+    removeMistakeRecord(state, recordId)
+    records.push(record)
+  }
+
+  if (records.length) {
+    saveMistakeState(state)
+    undoGroupingWithRefresh(() => {
+      for (const record of records) {
+        try {
+          removeSourceTags(record)
+        } catch (error) {
+          MN.error(error)
+        }
+      }
+    })
+    persistSources(records.map(record => record.sourceNotebookId))
+  }
+  return { changed: records.length, missing, records }
 }
 
 export function saveMistakeReviewCurves(value: unknown): MistakeReviewCurves {

@@ -1,0 +1,279 @@
+/* Layout is adapted from the supplied HTML. Visual colors remain owned by the existing theme files. */
+
+.topBar {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) auto minmax(110px, 1fr);
+}
+
+.appBrand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.appBrand > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.appBrand svg {
+  width: 18px;
+  height: 18px;
+}
+
+.appBrand strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.topNav {
+  justify-self: center;
+}
+
+.topTools {
+  justify-self: end;
+}
+
+.sectionIntro {
+  margin: 4px 0 16px;
+}
+
+.sectionIntro h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+
+.sectionIntro p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.mistakeSection {
+  height: calc(100vh - 70px);
+}
+
+.browserGrid {
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  height: 100%;
+}
+
+.mistakeSidebar {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filterBar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  flex: none;
+}
+
+.filterBar > input {
+  min-height: 38px;
+}
+
+.filterSelectors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, .72fr);
+  gap: 7px;
+}
+
+.filterSelectors > select,
+.filterSelectors .categoryTrigger {
+  width: 100%;
+  min-height: 36px;
+}
+
+.listToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  gap: 8px;
+}
+
+.listToolbar > span {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.listToolbar > button {
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 8px;
+}
+
+.mistakeSidebar .batchBar {
+  margin: 0;
+  flex-wrap: wrap;
+  flex: none;
+}
+
+.mistakeSidebar .batchBar select {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.mistakeList {
+  min-height: 0;
+  flex: 1;
+}
+
+.mistakeItem {
+  align-items: flex-start;
+}
+
+.mistakeItemBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.mistakeItem > .level {
+  margin-left: auto;
+}
+
+.detailHeader {
+  padding: 16px 18px 12px;
+}
+
+.detailTabs {
+  padding: 7px 18px;
+}
+
+.detailControls {
+  padding: 10px 18px 14px;
+}
+
+.reviewPage,
+.settingsPage {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.reviewList {
+  width: min(860px, 100%);
+  margin: 0 auto;
+  padding: 10px;
+  gap: 10px;
+}
+
+.dueReviewItem {
+  padding: 13px;
+}
+
+.settingsColumns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(340px, .92fr);
+  align-items: start;
+  gap: 14px;
+}
+
+.settingsGroups {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.settingsPrimary .settingsGroup > div {
+  grid-template-columns: 1fr;
+}
+
+.settingsSecondary .mistakeLevelGuide > div {
+  grid-template-columns: 1fr;
+}
+
+.exportPage {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+@media (max-width: 920px) {
+  .topBar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .appBrand strong {
+    display: none;
+  }
+
+  .browserGrid {
+    grid-template-columns: minmax(260px, 36%) minmax(0, 1fr);
+  }
+
+  .settingsColumns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .appBrand {
+    display: none;
+  }
+
+  .topBar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .topNav {
+    justify-self: start;
+    overflow-x: auto;
+  }
+
+  .mistakeSection {
+    height: calc(100vh - 58px);
+  }
+
+  .browserGrid {
+    grid-template-columns: minmax(190px, 42%) minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .filterSelectors {
+    grid-template-columns: 1fr;
+  }
+
+  .detailHeader,
+  .detailTabs,
+  .detailControls {
+    padding-left: 9px;
+    padding-right: 9px;
+  }
+
+  .detailControls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sectionIntro {
+    margin-bottom: 10px;
+  }
+
+  .sectionIntro h1 {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .browserGrid {
+    grid-template-columns: minmax(160px, 44%) minmax(0, 1fr);
+  }
+
+  .listToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .listToolbar > button {
+    width: 100%;
+  }
+}

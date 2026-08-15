@@ -262,6 +262,98 @@
   font-size: 0;
 }
 
+.batchBar {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: -2px 0 8px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.batchBar.active {
+  padding: 6px 8px;
+  background: #fff;
+  border-color: #e2e8f0;
+}
+
+.batchBar button,
+.batchBar select {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid #dbe2eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 11px;
+}
+
+.batchBar button:disabled {
+  opacity: .45;
+}
+
+.batchBar .batchToggle,
+.batchBar .batchApply {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+
+.batchBar .batchRemove {
+  color: #b42318;
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.batchBar strong {
+  white-space: nowrap;
+  font-size: 11px;
+  color: #475569;
+}
+
+.batchSpacer {
+  flex: 1;
+}
+
+.mistakeItem.selectable {
+  grid-template-columns: 22px auto 1fr;
+}
+
+.batchCheck {
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  align-self: start;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #fff;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.batchCheck.checked {
+  background: #0f172a;
+  border-color: #0f172a;
+}
+
+@media (max-width: 800px) {
+  .batchBar {
+    overflow-x: auto;
+  }
+
+  .batchBar > * {
+    flex: none;
+  }
+
+  .batchSpacer {
+    display: none;
+  }
+}
+
 @media (max-width: 590px) {
   .reviewIntro {
     display: block;

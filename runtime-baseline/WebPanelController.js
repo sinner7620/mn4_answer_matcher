@@ -82,6 +82,77 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     if (remember !== false) NSUserDefaults.standardUserDefaults().setObjectForKey(false, OPEN_KEY);
   }
 
+  // beta.12: best-effort native iOS 26 Liquid Glass, mounted directly behind the panel UI.
+  // If MarginNote does not expose the required UIKit symbols through JSB, the panel silently falls back.
+  function makeGlassEffect() {
+    if (typeof UIGlassEffect === "undefined") return null;
+    try {
+      if (typeof UIGlassEffect.alloc === "function") {
+        var raw = UIGlassEffect.alloc();
+        if (raw && typeof raw.initWithStyle === "function") {
+          var regular = (typeof UIGlassEffectStyleRegular !== "undefined") ? UIGlassEffectStyleRegular : 0;
+          return raw.initWithStyle(regular);
+        }
+        if (raw && typeof raw.init === "function") return raw.init();
+        return raw;
+      }
+    } catch (error) {}
+    try { if (typeof UIGlassEffect.new === "function") return UIGlassEffect.new(); } catch (error) {}
+    try { return new UIGlassEffect(0); } catch (error) {}
+    return null;
+  }
+
+  function makeGlassEffectView(effect, frame) {
+    if (!effect || typeof UIVisualEffectView === "undefined") return null;
+    try {
+      if (typeof UIVisualEffectView.alloc === "function") {
+        var raw = UIVisualEffectView.alloc();
+        var view = null;
+        if (raw && typeof raw.initWithEffect === "function") view = raw.initWithEffect(effect);
+        else if (raw && typeof raw.initWithFrame === "function") {
+          view = raw.initWithFrame(frame);
+          try { view.effect = effect; } catch (error) {}
+        } else if (raw && typeof raw.init === "function") {
+          view = raw.init();
+          try { view.effect = effect; } catch (error) {}
+        } else view = raw;
+        return view;
+      }
+    } catch (error) {}
+    try {
+      var view2 = new UIVisualEffectView(frame);
+      try { view2.effect = effect; } catch (error) {}
+      return view2;
+    } catch (error) {}
+    return null;
+  }
+
+  function mountNativeLiquidGlass(controller, frame) {
+    controller.nativeGlassMounted = false;
+    controller.nativeGlassView = null;
+    try {
+      var effect = makeGlassEffect();
+      var glassView = makeGlassEffectView(effect, frame);
+      if (!glassView) return false;
+      glassView.frame = { x: 0, y: 0, width: frame.width, height: frame.height };
+      glassView.autoresizingMask = (1 << 1) | (1 << 4);
+      try { glassView.userInteractionEnabled = false; } catch (error) {}
+      try {
+        glassView.layer.cornerRadius = 14;
+        glassView.layer.masksToBounds = true;
+      } catch (error) {}
+      controller.view.addSubview(glassView);
+      controller.nativeGlassView = glassView;
+      controller.nativeGlassMounted = true;
+      try { controller.view.backgroundColor = UIColor.clearColor(); } catch (error) {}
+      return true;
+    } catch (error) {
+      controller.nativeGlassMounted = false;
+      controller.nativeGlassView = null;
+      return false;
+    }
+  }
+
   function lockWebViewRootScroll(controller) {
     if (!controller || !controller.webView || !controller.webView.scrollView) return;
     var scrollView = controller.webView.scrollView;
@@ -110,8 +181,10 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     controller.view.layer.shadowRadius = 12;
     controller.view.layer.shadowOffset = { width: 0, height: 4 };
 
+    mountNativeLiquidGlass(controller, frame);
+
     controller.titleBar = new UIView({ x: 0, y: 0, width: frame.width, height: TITLE_HEIGHT });
-    controller.titleBar.backgroundColor = UIColor.colorWithHexString("#F7F8FB");
+    controller.titleBar.backgroundColor = controller.nativeGlassMounted ? UIColor.clearColor() : UIColor.colorWithHexString("#F7F8FB");
     controller.titleBar.autoresizingMask = 1 << 1;
     controller.view.addSubview(controller.titleBar);
 
@@ -139,6 +212,11 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     try { controller.webView.scrollView.alwaysBounceVertical = false; } catch (error) {}
     try { controller.webView.scrollView.alwaysBounceHorizontal = false; } catch (error) {}
     lockWebViewRootScroll(controller);
+    if (controller.nativeGlassMounted) {
+      try { controller.webView.opaque = false; } catch (error) {}
+      try { controller.webView.backgroundColor = UIColor.clearColor(); } catch (error) {}
+      try { controller.webView.scrollView.backgroundColor = UIColor.clearColor(); } catch (error) {}
+    }
     controller.webView.delegate = controller;
     controller.view.addSubview(controller.webView);
 
@@ -190,22 +268,6 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
       webViewShouldStartLoadWithRequestNavigationType: function (webView, request) {
         var url = request.URL();
         if (String(url.scheme || "").toLowerCase() !== SCHEME) return true;
-        var absolute = String(url.absoluteString());
-        if (webView === self.exportWebView && absolute.indexOf("mnaddon://pdf-render-ready") === 0) {
-          __MNAM_WEB_BRIDGE_GLOBAL__.pdfRenderReady(self, webView);
-          return false;
-        }
-        if (webView === self.exportWebView && absolute.indexOf("mnaddon://pdf-data-ready") === 0) {
-          __MNAM_WEB_BRIDGE_GLOBAL__.pdfDataReady(self, webView);
-          return false;
-        }
-        if (webView === self.exportWebView && absolute.indexOf("mnaddon://pdf-render-error") === 0) {
-          var marker = "message=";
-          var markerIndex = absolute.indexOf(marker);
-          var renderError = markerIndex < 0 ? "未知错误" : decodeURIComponent(absolute.slice(markerIndex + marker.length));
-          __MNAM_WEB_BRIDGE_GLOBAL__.pdfRenderError(self, webView, renderError);
-          return false;
-        }
         var message;
         try {
           message = decodeMessage(url);
@@ -233,6 +295,11 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
           return;
         }
         if (webView === self.webView) lockWebViewRootScroll(self);
+        if (webView === self.webView && self.nativeGlassMounted) {
+          try {
+            webView.evaluateJavaScript("document.documentElement.classList.add('nativeLiquidGlass');document.body&&document.body.classList.add('nativeLiquidGlass')", function () {});
+          } catch (error) {}
+        }
       }
     }
   );

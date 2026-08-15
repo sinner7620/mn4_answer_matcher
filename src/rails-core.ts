@@ -26,9 +26,11 @@ import {
   mistakeDetailById,
   mistakeWorkbenchData,
   openSourceByMistakeId,
+  removeMistakesByIds,
   removeMistakeById,
   repairAndOrganizeMistakes,
   reviewMistakeById,
+  reviewMistakesByIds,
   saveMistakeReviewCurves,
   setMistakeCategoryById
 } from "./mistake-manager"
@@ -74,12 +76,14 @@ async function bridge(command: string, payload: any): Promise<any> {
   if (command === "mistakeDetail") return mistakeDetailById(String(payload?.recordId ?? ""))
   if (command === "openSource") return openSourceByMistakeId(String(payload?.recordId ?? ""))
   if (command === "reviewMistake") return reviewMistakeById(String(payload?.recordId ?? ""), Number(payload?.level) as any)
+  if (command === "reviewMistakes") return reviewMistakesByIds(payload?.recordIds, Number(payload?.level) as any)
   if (command === "saveMistakeReviewCurves") return saveMistakeReviewCurves(payload?.curves)
   if (command === "setMistakeCategory") return setMistakeCategoryById(String(payload?.recordId ?? ""), String(payload?.category ?? ""))
   if (command === "removeMistake") {
     await removeMistakeById(String(payload?.recordId ?? ""))
     return { removed: true }
   }
+  if (command === "removeMistakes") return removeMistakesByIds(payload?.recordIds)
   if (command === "repairMistakes") return repairAndOrganizeMistakes()
   if (command === "exportMistakes") return exportMistakes(payload || { format: "md" })
   if (command === "checkUpdates") return checkForUpdates(true)

@@ -1,0 +1,8 @@
+{
+  "addonid": "marginnote.extension.mn4-answer-matcher.beta",
+  "author": "frank",
+  "title": "CardLink 跨脑图卡片匹配 Beta",
+  "version": "2.3.1-beta.25",
+  "marginnote_version_min": "4.0.0",
+  "cert_key": ""
+}

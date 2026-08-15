@@ -110,7 +110,9 @@ function workbench() {
     dueCount: records.filter(record => record.noteAvailable && new Date(record.nextReviewAt).getTime() <= now).length,
     levelCounts: [0, 1, 2, 3, 4, 5].map(level => records.filter(record => record.level === level).length),
     categories: [],
-    migratedFromLegacy: 0
+    migratedFromLegacy: 0,
+    reviewCurves: { 0: [1], 1: [1], 2: [3], 3: [7, 14], 4: [30], 5: [60] },
+    customCategories: ["计算题", "概念辨析", "需要重做"]
   }
 }
 
@@ -129,7 +131,17 @@ function detail(recordId) {
 }
 
 export async function previewSend(command, payload = null) {
-  if (command === "dashboard") return { version: "2.2.0-beta.7 · 浏览器预览", mistakes: workbench() }
+  if (command === "dashboard") return {
+    version: "2.3.1-beta.25 · 完整界面预览",
+    mistakes: workbench(),
+    matching: {
+      scopedBinding: true,
+      mode: "title",
+      matchedGroups: 0,
+      pairs: 0,
+      regexRules: { questionPattern: "", answerPattern: "" }
+    }
+  }
   if (command === "mistakes") return workbench()
   if (command === "mistakeDetail") return detail(String(payload?.recordId ?? ""))
   if (command === "reviewMistake") {
@@ -142,6 +154,20 @@ export async function previewSend(command, payload = null) {
     record.reviewCount += 1
     return record
   }
+  if (command === "reviewMistakes") {
+    const ids = new Set((payload?.recordIds || []).map(String))
+    const changed = []
+    for (const record of records) {
+      if (!ids.has(record.recordId)) continue
+      record.level = Math.max(0, Math.min(5, Number(payload?.level) || 0))
+      record.lastReviewedAt = new Date().toISOString()
+      record.updatedAt = record.lastReviewedAt
+      record.nextReviewAt = dateFromNow(levelDays[record.level])
+      record.reviewCount += 1
+      changed.push(record)
+    }
+    return { changed: changed.length, missing: ids.size - changed.length, records: changed }
+  }
   if (command === "setMistakeCategory") {
     const record = records.find(item => item.recordId === String(payload?.recordId ?? ""))
     if (record) record.manualCategory = String(payload?.category ?? "")
@@ -152,15 +178,24 @@ export async function previewSend(command, payload = null) {
     if (index >= 0) records.splice(index, 1)
     return { removed: true }
   }
+  if (command === "removeMistakes") {
+    const ids = new Set((payload?.recordIds || []).map(String))
+    const removed = []
+    for (let index = records.length - 1; index >= 0; index--) {
+      if (!ids.has(records[index].recordId)) continue
+      removed.push(...records.splice(index, 1))
+    }
+    return { changed: removed.length, missing: ids.size - removed.length, records: removed }
+  }
+  if (command === "saveMistakeReviewCurves") return payload?.curves || workbench().reviewCurves
   if (command === "exportMistakes") {
     const chosen = records.filter(item => !payload?.recordIds?.length || payload.recordIds.includes(item.recordId))
     if (!chosen.length) throw new Error("当前导出范围没有可用错题")
     const extension = payload?.format === "md" ? "md" : "pdf"
     const filename = `${String(payload?.filename || "MN4错题导出").replace(/\.(md|pdf)$/i, "")}.${extension}`
     const link = document.createElement("a")
-    if (extension === "pdf") {
-      link.href = "/export-demo/sample/mn4-mistakes-demo.pdf"
-    } else {
+    if (extension === "pdf") return { printPanel: true, printCompleted: true, format: "pdf", filename, count: chosen.length }
+    else {
       const markdown = [`# MN4 错题导出`, "", ...chosen.flatMap((item, index) => [`## ${index + 1}. ${item.sourceTitle}`, "", `**错题${item.level}级** · ${item.categoryLabel}`, "", `来源：${item.sourceNotebookTitle} › ${item.sourcePathTitles.join(" › ")}`, "", "### 原题卡片", "", questionHtml, "", "### 实时匹配答案", "", answerHtml, "", "---", ""])]
       link.href = URL.createObjectURL(new Blob([markdown.join("\n")], { type: "text/markdown;charset=utf-8" }))
       setTimeout(() => URL.revokeObjectURL(link.href), 1000)

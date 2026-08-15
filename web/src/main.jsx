@@ -11,6 +11,8 @@ import "./icons.css"
 import "./reference-theme.css"
 import "./review-actions.css"
 import "./export.css"
+import "./layout-reference.css"
+import "./beta-ui.css"
 
 const levelNames = ["未掌握", "已理解", "可完成", "已掌握", "已稳定", "已迁移"]
 const levelExplanations = [
@@ -25,6 +27,14 @@ const defaultReviewCurves = [[1], [1], [3], [7, 14], [30], [60]]
 
 function levelLabel(level) {
   return `错题${level}级`
+}
+
+function TargetIcon() {
+  return <svg className="preview-target-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="5" />
+    <circle className="preview-target-dot" cx="12" cy="12" r="1.5" />
+  </svg>
 }
 
 function normalizeSearch(value) {
@@ -56,6 +66,27 @@ function categoryChoices(records, prefix) {
     if (part) counts.set(part, (counts.get(part) || 0) + 1)
   }
   return [...counts].map(([name, count]) => ({ name, count }))
+}
+
+function patchReviewedMistake(data, reviewed) {
+  if (!data?.mistakes?.records || !reviewed?.recordId) return data
+  const records = data.mistakes.records.map(record =>
+    record.recordId === reviewed.recordId ? { ...record, ...reviewed } : record
+  )
+  const now = Date.now()
+  return {
+    ...data,
+    mistakes: {
+      ...data.mistakes,
+      records,
+      dueCount: records.filter(record =>
+        record.noteAvailable && new Date(record.nextReviewAt).getTime() <= now
+      ).length,
+      levelCounts: levelNames.map((_, nextLevel) =>
+        records.filter(record => record.level === nextLevel).length
+      )
+    }
+  }
 }
 
 function App() {
@@ -92,7 +123,11 @@ function App() {
     setError("")
     try {
       const result = await MNBridge.send(command, payload)
-      if (reload) await load()
+      if (reload && command === "reviewMistake" && result) {
+        setData(current => patchReviewedMistake(current, result))
+        setBusy(false)
+      }
+      else if (reload) await load()
       else setBusy(false)
       return result
     } catch (reason) {
@@ -140,16 +175,17 @@ function App() {
   }, [data, query, level, categoryPath])
 
   const entries = [
-    ["overview", "overview", "错题总览"],
-    ["mistakes", "mistakes", "错题浏览", data?.mistakes?.records?.length || 0],
-    ["review", "review", "到期复习", data?.mistakes?.dueCount || 0],
-    ["settings", "settings", "设置"]
+    ["overview", "总览"],
+    ["mistakes", "错题本", data?.mistakes?.records?.length || 0],
+    ["review", "待复习", data?.mistakes?.dueCount || 0],
+    ["settings", "设置"]
   ]
 
   return <div className="shell">
     <main>
       <header className="topBar">
-        <nav className="topNav">{entries.map(([key, icon, name, count]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><span><Icon name={icon} /></span><strong>{name}</strong>{count > 0 && <b>{count}</b>}</button>)}</nav>
+        <div className="appBrand"><span><img src="../logo.png" alt="MN4 Answer Matcher" /></span><strong>MN4 Answer Matcher</strong></div>
+        <nav className="topNav">{entries.map(([key, name, count]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><strong>{name}</strong>{count > 0 && <b>{count}</b>}</button>)}</nav>
         <div className="topTools"><small>v{data?.version || "…"}</small><button className="iconButton" onClick={load} disabled={busy}><Icon name="refresh" /></button></div>
       </header>
       <div className="pageHeading"><h1>{tab === "overview" ? "错题总览" : tab === "mistakes" ? "错题浏览" : tab === "review" ? "到期复习" : tab === "export" ? "导出错题" : "设置"}</h1><p>{tab === "overview" ? "掌握情况、到期复习和最近错题概览" : tab === "mistakes" ? "全部错题保留在原脑图中，可分类、核对答案并定位原题" : tab === "export" ? "从当前错题记录生成可另存的 PDF 或 Markdown 文件" : "跨脑图答案与错题工作台"}</p></div>
@@ -191,13 +227,15 @@ function App() {
         onBack={() => setTab("settings")}
       />}
 
-      {tab === "settings" && <section className="settingsGroups">
-        <SettingsGroup title="答案匹配" items={[
+      {tab === "settings" && <section className="settingsPage">
+        <header className="sectionIntro"><h1>设置与管理</h1><p>管理答案匹配、错题操作、复习节奏与插件状态。</p></header>
+        <div className="settingsColumns"><div className="settingsGroups settingsPrimary">
+          <SettingsGroup title="答案匹配" items={[
           ["bind", "同一学习集具体脑图绑定", data?.matching?.scopedBinding
             ? "已开启：每个题目脑图可绑定具体答案脑图，点击关闭"
-            : "已关闭：点击开启，可选择同一学习集下的其他脑图", () => action("setScopedBinding", { enabled: !data?.matching?.scopedBinding })],
+            : "已关闭：点击开启，可选择同一学习集下的其他脑图", () => action("setScopedBinding", { enabled: !data?.matching?.scopedBinding }), <span className={`preview-switch ${data?.matching?.scopedBinding ? "on" : ""}`} role="switch" aria-checked={!!data?.matching?.scopedBinding} key="switch" />],
           ["bind", "绑定或更换答案脑图", data?.matching?.scopedBinding
-            ? "为当前题目脑图选择具体答案脑图，可选择同一学习集"
+            ? "为当前题目脑图选择具体答案脑图"
             : "当前按整个答案学习集绑定；开启上方选项可绑定具体脑图", () => action("bindAnswerNotebook")],
           ["organize", "设置答案匹配方式", data?.matching?.mode === "parent-order"
             ? `章节顺序配对：${data.matching.matchedGroups} 个父节点，${data.matching.pairs} 张卡片`
@@ -207,20 +245,22 @@ function App() {
           ["refresh", "刷新答案索引", "仅在答案脑图内容变化后手动刷新", () => action("refreshAnswerIndex")],
           ["unlink", "解除答案绑定", "解除当前题目脑图的答案关联", () => action("unbindAnswerNotebook")]
         ]} />
-        {data?.matching?.mode === "regex" &&
-          <RegexMatchingSettings matching={data.matching} action={action} />}
-        <SettingsGroup title="错题管理" items={[
-          ["mistakes", "标记当前卡片错题", "选择错题0级至错题5级后加入错题浏览", () => action("markMistake")],
+          {data?.matching?.mode === "regex" &&
+            <RegexMatchingSettings matching={data.matching} action={action} />}
+          <SettingsGroup title="错题管理" items={[
+          ["mistakes", "标记所选卡片错题", "支持脑图多选，统一选择错题等级", () => action("markMistake")],
           ["locate", "定位当前错题原题", "跳转到当前错题记录的原脑图位置", () => action("openCurrentMistakeSource", null, false)],
           ["organize", "刷新错题分类索引", "重新读取脑图标题、父节点路径和答案绑定", () => action("repairMistakes")],
-          ["download", "导出错题", "选择 PDF 或 Markdown 格式并预览导出", openExport]
-        ]} />
-        <MistakeLevelGuide reviewCurves={data?.mistakes?.reviewCurves} action={action} />
-        <SettingsGroup title="插件" items={[
-          ["info", "当前版本", `v${data?.version || "…"}`, () => action("notify", { message: `当前版本 v${data?.version || "…"}` }, false)],
-          ["reset", "重置窗口位置与大小", "将工作台恢复到屏幕左上方的默认尺寸", () => action("resetPanelFrame", null, false)],
+          ["download", "导出错题", "以 Markdown 格式预览导出", openExport]
+          ]} />
+          <SettingsGroup title="插件" items={[
+          ["info", "当前版本", `v${data?.version || "…"} · frank`, () => action("notify", { message: `当前版本 v${data?.version || "…"}` }, false)],
+          ["reset", "重置窗口位置与大小", "将工作台窗口恢复到默认尺寸", () => action("resetPanelFrame", null, false)],
           ["download", "检查插件更新", "检查 GitHub 版本并选择安装或保存", () => action("checkUpdates", null, false)]
-        ]} />
+          ]} />
+        </div><div className="settingsGroups settingsSecondary">
+          <MistakeLevelGuide reviewCurves={data?.mistakes?.reviewCurves} action={action} />
+        </div></div>
       </section>}
     </main>
   </div>
@@ -228,16 +268,84 @@ function App() {
 
 function MistakeBrowser(props) {
   const { records, allRecords, selectedId, detail, openDetail, action, reloadDetail, onRemoved } = props
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [batchLevel, setBatchLevel] = useState("0")
+  const [removeArmed, setRemoveArmed] = useState(false)
+  const [levelPickerOpen, setLevelPickerOpen] = useState(false)
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
+  useEffect(() => {
+    const available = new Set(allRecords.map(record => record.recordId))
+    setSelectedIds(current => current.filter(recordId => available.has(recordId)))
+  }, [allRecords])
+
+  function toggleSelecting() {
+    setSelecting(value => !value)
+    setSelectedIds([])
+    setRemoveArmed(false)
+  }
+
+  function toggleRecord(recordId) {
+    setRemoveArmed(false)
+    setSelectedIds(current => current.includes(recordId)
+      ? current.filter(id => id !== recordId)
+      : [...current, recordId])
+  }
+
+  function selectVisible() {
+    setRemoveArmed(false)
+    setSelectedIds(current => {
+      const next = new Set(current)
+      for (const record of records) next.add(record.recordId)
+      return [...next]
+    })
+  }
+
+  async function changeSelectedLevel(nextLevel = batchLevel) {
+    const result = await action("reviewMistakes", {
+      recordIds: selectedIds,
+      level: Number(nextLevel)
+    })
+    if (result) {
+      setSelectedIds([])
+      setRemoveArmed(false)
+    }
+  }
+
+  async function removeSelected() {
+    if (!removeArmed) return setRemoveArmed(true)
+    const result = await action("removeMistakes", { recordIds: selectedIds })
+    if (result) {
+      setSelectedIds([])
+      setRemoveArmed(false)
+      onRemoved()
+    }
+  }
+
   return <section className="mistakeSection">
-    <div className="filterBar">
-      <input value={props.query} onChange={event => props.setQuery(event.target.value)} placeholder="搜索题名、脑图、章节或分类" />
-      <CategoryCascade records={allRecords} path={props.categoryPath} setPath={props.setCategoryPath} />
-      <select value={props.level} onChange={event => props.setLevel(event.target.value)}><option value="all">全部分类</option>{levelNames.map((name, index) => <option value={String(index)} key={name}>{levelLabel(index)} · {name}</option>)}</select>
-      <span>{records.length}/{allRecords.length}</span>
-    </div>
     <div className="browserGrid">
-      <div className="mistakeList">{records.map(item => <MistakeListItem key={item.recordId} item={item} selected={selectedId === item.recordId} onClick={() => openDetail(item.recordId)} />)}{!records.length && <Empty title="没有符合条件的错题" text="清空搜索或筛选条件后重试。" />}</div>
-      <div className="detailPane">{detail ? <MistakeDetail detail={detail} customCategories={props.customCategories} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
+      <aside className="mistakeSidebar">
+        <div className="filterBar">
+          <input value={props.query} onChange={event => props.setQuery(event.target.value)} placeholder="搜索题名、脑图、章节或分类" />
+          <div className="filterSelectors"><CategoryCascade records={allRecords} path={props.categoryPath} setPath={props.setCategoryPath} />
+          <select value={props.level} onChange={event => props.setLevel(event.target.value)}><option value="all">全部等级</option>{levelNames.map((name, index) => <option value={String(index)} key={name}>{index}级-{name}</option>)}</select></div>
+          <div className="listToolbar"><span>共 {allRecords.length} 道错题</span><button className="batchToggle" onClick={toggleSelecting}>{selecting ? "退出多选" : "多选批量"}</button></div>
+        </div>
+        {selecting && <div className="batchBar active">
+          <strong>已选 {selectedIds.length} 道</strong>
+          <button onClick={selectVisible} disabled={!records.length}>全选</button>
+          <button onClick={() => { setSelectedIds([]); setRemoveArmed(false) }} disabled={!selectedIds.length}>清空</button>
+          <button className="preview-change-level" onClick={() => setLevelPickerOpen(true)} disabled={!selectedIds.length}>更改等级</button>
+          <select value={batchLevel} onChange={event => setBatchLevel(event.target.value)}>{levelNames.map((name, index) => <option value={index} key={name}>{index}级-{name}</option>)}</select>
+          <button className="batchApply" onClick={changeSelectedLevel} disabled={!selectedIds.length}>修改等级</button>
+          <button className="batchRemove" onClick={removeSelected} disabled={!selectedIds.length}>{removeArmed ? `确认取消 ${selectedIds.length} 道` : "取消错题"}</button>
+        </div>}
+        <div className="mistakeList">{records.map(item => <MistakeListItem key={item.recordId} item={item} selected={!selecting && selectedId === item.recordId} selectable={selecting} checked={selectedSet.has(item.recordId)} onClick={() => selecting ? toggleRecord(item.recordId) : openDetail(item.recordId)} />)}{!records.length && <Empty title="没有符合条件的错题" text="清空搜索或筛选条件后重试。" />}</div>
+      </aside>
+      <div className={`detailPane ${selecting ? "batchSelectionPane" : ""}`}>{selecting ? null : detail ? <MistakeDetail detail={detail} customCategories={props.customCategories} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
+    </div>
+    <div id="preview-level-picker" className={levelPickerOpen ? "open" : ""} onClick={event => event.target === event.currentTarget && setLevelPickerOpen(false)}>
+      <div><h2>批量更改错题等级</h2><section>{levelNames.map((name, level) => <button type="button" key={name} onClick={async () => { setBatchLevel(String(level)); setLevelPickerOpen(false); await changeSelectedLevel(level) }}><i className={`level${level}`}>{level}级</i><span>{name}</span></button>)}</section><footer><button type="button" onClick={() => setLevelPickerOpen(false)}>取消</button></footer></div>
     </div>
   </section>
 }
@@ -313,8 +421,8 @@ function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
   </section>
 }
 
-function MistakeListItem({ item, selected, onClick }) {
-  return <button className={`mistakeItem ${selected ? "selected" : ""} ${item.noteAvailable ? "" : "unavailable"}`} onClick={onClick}><span className={`level level${item.level}`}>{item.level}级</span><span><strong>{item.sourceTitle}</strong><small>{item.categoryLabel}</small><small>添加 {formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small><small>{item.sourceNotebookTitle}{item.noteAvailable ? "" : " · 原卡片不可用"}</small></span></button>
+function MistakeListItem({ item, selected, selectable, checked, onClick }) {
+  return <button className={`mistakeItem ${selected || checked ? "selected" : ""} ${selectable ? "selectable" : ""} ${item.noteAvailable ? "" : "unavailable"}`} onClick={onClick}>{selectable && <span className={`batchCheck ${checked ? "checked" : ""}`}>{checked ? "✓" : ""}</span>}<span className="mistakeItemBody"><strong>{item.sourceTitle}</strong><small>{item.categoryLabel}</small><small>添加 {formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small><small>{item.sourceNotebookTitle}{item.noteAvailable ? "" : " · 原卡片不可用"}</small></span><span className={`level level${item.level}`}>{item.level}级</span></button>
 }
 
 function DueReviewList({ records, action }) {
@@ -340,9 +448,11 @@ function DueReviewList({ records, action }) {
     if (result && answerDetail?.record?.recordId === item.recordId) setAnswerDetail(null)
   }
 
-  if (!records.length) return <section className="reviewList"><Empty title="目前没有到期错题" text="新的复习任务会按掌握状态自动出现。" /></section>
-  return <section className="reviewList">
-    <div className="reviewIntro"><strong>到期错题 {records.length} 道</strong><small>先跳转原题作答，需要时查看实时答案，最后选择状态并完成标记。</small></div>
+  return <section className="reviewPage">
+    <header className="sectionIntro"><h1>到期复习</h1><p>{records.length ? "先独立作答，再核对答案并更新掌握等级。" : "当前复习任务已经完成。"}</p></header>
+    <div className="reviewList">
+    {!records.length ? <Empty title="目前没有到期错题" text="新的复习任务会按掌握状态自动出现。" /> : <>
+    <div className="reviewIntro"><strong>待复习 {records.length} 道</strong><small>完成标记后将按当前等级安排下一次复习。</small></div>
     {records.map(item => {
       const expanded = answerDetail?.record?.recordId === item.recordId
       const answer = expanded ? answerDetail.answers?.[Math.min(answerIndex, Math.max(0, answerDetail.answers.length - 1))] : null
@@ -352,10 +462,10 @@ function DueReviewList({ records, action }) {
           <span><strong>{item.sourceTitle}</strong><small>{item.categoryLabel} · {item.sourceNotebookTitle}</small><small>{levelNames[item.level]} · {reviewCountdown(item.nextReviewAt)}</small></span>
         </div>
         <div className="dueReviewActions">
-          <button onClick={() => action("openSource", { recordId: item.recordId }, false)}>跳转原题</button>
+          <button onClick={() => action("openSource", { recordId: item.recordId }, false)}>定位原题</button>
           <button className={expanded ? "active" : ""} onClick={() => toggleAnswer(item.recordId)}>{expanded ? "收起答案" : "查看答案"}</button>
           <select value={statusById[item.recordId] ?? String(item.level)} onChange={event => setStatusById({ ...statusById, [item.recordId]: event.target.value })}>
-            {levelNames.map((name, level) => <option value={level} key={name}>{levelLabel(level)} · {name}</option>)}
+            {levelNames.map((name, level) => <option value={level} key={name}>{level}级-{name}</option>)}
           </select>
           <button className="complete" onClick={() => complete(item)}>完成标记</button>
         </div>
@@ -364,7 +474,8 @@ function DueReviewList({ records, action }) {
           {answer ? <iframe title={`${item.sourceTitle}答案`} srcDoc={answer.html} /> : <Empty title={answerDetail.answerStatus === "unbound" ? "来源脑图尚未绑定答案" : "没有匹配到答案"} text="答案按原题脑图当前绑定实时查询。" />}
         </div>}
       </article>
-    })}
+    })}</>}
+    </div>
   </section>
 }
 
@@ -375,6 +486,7 @@ function MistakeDetail({ detail, customCategories, action, reloadDetail, onRemov
   const [removeArmed, setRemoveArmed] = useState(false)
   useEffect(() => { setCategory(detail.record.manualCategory || ""); setView("question"); setAnswerIndex(0); setRemoveArmed(false) }, [detail.record.recordId])
   const answer = detail.answers?.[Math.min(answerIndex, Math.max(0, detail.answers.length - 1))]
+  const reviewStatus = reviewCountdown(detail.record.nextReviewAt).replace(/^下次复习/, "")
   async function saveCategory() {
     await action("setMistakeCategory", { recordId: detail.record.recordId, category })
     await reloadDetail()
@@ -385,9 +497,15 @@ function MistakeDetail({ detail, customCategories, action, reloadDetail, onRemov
     if (result?.removed) onRemoved()
   }
   return <div className="detail">
-    <div className="detailHeader"><div><small>{detail.record.sourceNotebookTitle}</small><h2>{detail.record.sourceTitle}</h2><p>{(detail.record.sourcePathTitles || []).join(" › ") || "脑图根节点"}</p><small>添加于 {formatDate(detail.record.createdAt)} · {reviewCountdown(detail.record.nextReviewAt)}</small></div><button onClick={() => action("openSource", { recordId: detail.record.recordId }, false)}>定位原题</button></div>
+    <div className="detailHeader"><div>
+      <div className="preview-detail-source-row"><small>{detail.record.sourceNotebookTitle}</small><span className="preview-detail-source-path">{(detail.record.sourcePathTitles || []).join(" › ") || "脑图根节点"}</span></div>
+      <div className="preview-detail-title-row"><h2>{detail.record.sourceTitle}</h2><span className="preview-detail-badges"><span className={`preview-level-badge preview-level-${detail.record.level}`}>{detail.record.level}级</span><span className={`preview-due-badge ${reviewStatus === "已到期" ? "is-due" : ""}`}>{reviewStatus}</span></span><button onClick={() => action("openSource", { recordId: detail.record.recordId }, false)}><TargetIcon /><span>定位原题</span></button></div>
+      <div className="preview-detail-meta">添加于 {formatDate(detail.record.createdAt)} · {reviewStatus}</div>
+    </div></div>
+    <div className="detailTabs"><button className={view === "question" ? "active" : ""} onClick={() => setView("question")}>完整原题</button><button className={view === "answer" ? "active" : ""} onClick={() => setView("answer")}>对应答案 {detail.answers?.length ? `(${detail.answers.length})` : ""}</button>{view === "answer" && detail.answers?.length > 1 && <select value={answerIndex} onChange={event => setAnswerIndex(Number(event.target.value))}>{detail.answers.map((item, index) => <option key={item.id} value={index}>{item.title} · {item.path}</option>)}</select>}</div>
+    <div className="cardFrame">{view === "question" ? <iframe title="错题原题" srcDoc={detail.questionHtml} /> : answer ? <iframe title="错题答案" srcDoc={answer.html} /> : <Empty title={detail.answerStatus === "unbound" ? "尚未绑定答案脑图" : detail.answerStatus === "index-missing" ? "答案索引尚未建立" : "没有匹配答案"} text="可从经典菜单绑定答案脑图或刷新答案索引。" />}</div>
     <div className="detailControls">
-      <select value={detail.record.level} onChange={async event => { await action("reviewMistake", { recordId: detail.record.recordId, level: Number(event.target.value) }); await reloadDetail() }}>{levelNames.map((name, index) => <option key={name} value={index}>{levelLabel(index)} · {name}</option>)}</select>
+      <select value={detail.record.level} onChange={async event => { await action("reviewMistake", { recordId: detail.record.recordId, level: Number(event.target.value) }); await reloadDetail() }}>{levelNames.map((name, index) => <option key={name} value={index}>{index}级-{name}</option>)}</select>
       <div className="customCategoryEditor">
         <input value={category} onChange={event => setCategory(event.target.value)} placeholder="输入自定义分类（可留空）" />
         <select value="" aria-label="选择自定义分类" onChange={event => event.target.value && setCategory(event.target.value)}>
@@ -396,8 +514,6 @@ function MistakeDetail({ detail, customCategories, action, reloadDetail, onRemov
         </select>
       </div><button onClick={saveCategory}>保存分类</button><button className="danger" onClick={remove}>{removeArmed ? "再次确认" : "取消错题"}</button>
     </div>
-    <div className="detailTabs"><button className={view === "question" ? "active" : ""} onClick={() => setView("question")}>完整原题</button><button className={view === "answer" ? "active" : ""} onClick={() => setView("answer")}>对应答案 {detail.answers?.length ? `(${detail.answers.length})` : ""}</button>{view === "answer" && detail.answers?.length > 1 && <select value={answerIndex} onChange={event => setAnswerIndex(Number(event.target.value))}>{detail.answers.map((item, index) => <option key={item.id} value={index}>{item.title} · {item.path}</option>)}</select>}</div>
-    <div className="cardFrame">{view === "question" ? <iframe title="错题原题" srcDoc={detail.questionHtml} /> : answer ? <iframe title="错题答案" srcDoc={answer.html} /> : <Empty title={detail.answerStatus === "unbound" ? "尚未绑定答案脑图" : detail.answerStatus === "index-missing" ? "答案索引尚未建立" : "没有匹配答案"} text="可从经典菜单绑定答案脑图或刷新答案索引。" />}</div>
   </div>
 }
 
@@ -406,7 +522,7 @@ function Empty({ title, text }) {
 }
 
 function SettingsGroup({ title, items }) {
-  return <div className="settingsGroup"><h2>{title}</h2><div>{items.map(([icon, name, description, onClick]) => <button key={name} onClick={onClick}><i><Icon name={icon} /></i><span><strong>{name}</strong><small>{description}</small></span></button>)}</div></div>
+  return <div className="settingsGroup"><h2>{title}</h2><div>{items.map(([icon, name, description, onClick, trailing]) => <button key={name} onClick={onClick}><i><Icon name={icon} /></i><span><strong>{name}</strong><small>{description}</small></span>{trailing}</button>)}</div></div>
 }
 
 function RegexMatchingSettings({ matching, action }) {
@@ -465,6 +581,7 @@ function MistakeLevelGuide({ reviewCurves, action }) {
     fallback.map((days, index) => Number(reviewCurves?.[level]?.[index]) || days))
   const [curves, setCurves] = useState(normalized)
   const [saved, setSaved] = useState("")
+  const [editing, setEditing] = useState(false)
   useEffect(() => { setCurves(normalized) }, [JSON.stringify(reviewCurves)])
 
   function update(level, index, value) {
@@ -483,6 +600,7 @@ function MistakeLevelGuide({ reviewCurves, action }) {
     if (result) {
       setCurves(valid)
       setSaved("已保存；将在新标记或完成复习后生效")
+      setEditing(false)
     }
   }
 
@@ -492,12 +610,12 @@ function MistakeLevelGuide({ reviewCurves, action }) {
       <span className={`level level${level}`}>{level}级</span>
       <span><strong>{levelLabel(level)} · {name}</strong><small>{levelExplanations[level]}</small></span>
       <span className="reviewDayEditor">{curves[level].map((days, index) => <label key={index}>
-        {curves[level].length > 1 && <small>{index === 0 ? "首次" : "后续"}</small>}
-        <input type="number" min="1" max="3650" step="1" value={days} onChange={event => update(level, index, event.target.value)} />
+        <small>{index === 0 ? "首次" : "后续"}</small>
+        <input type="number" min="1" max="3650" step="1" value={days} disabled={!editing} onChange={event => update(level, index, event.target.value)} />
         <em>天后复习</em>
       </label>)}</span>
     </article>)}</div>
-    <footer><button onClick={save}>保存复习天数</button>{saved && <small>{saved}</small>}</footer>
+    <footer><button onClick={() => editing ? save() : setEditing(true)}>{editing ? "保存并应用" : "编辑复习天数"}</button>{saved && <small>{saved}</small>}</footer>
   </section>
 }
 
@@ -519,16 +637,22 @@ function MistakeExport({ allRecords, filteredRecords, action, onBack }) {
       recordIds: selected.map(item => item.recordId),
       include
     }, false)
-    if (response?.saved) setResult(`已打开系统另存面板：${response.filename}（${response.count} 道）`)
-    if (response?.printPanel) setResult(`系统打印面板已打开；请在预览中选择分享并“存储到文件”（${response.count} 道）`)
+    if (response?.pdfGenerated) setResult(`PDF 已在本地生成，共 ${response.pages} 页；已打开保存面板（${response.count} 道）`)
+    else if (response?.saved) setResult(`已打开系统另存面板：${response.filename}（${response.count} 道）`)
+    else if (response?.printInvoked) setResult(`系统打印已调用；请在面板中选择打印或另存为 PDF（${response.count} 道）`)
+    else if (response?.htmlFallback) setResult(`当前 MarginNote 未提供打印接口，已打开自包含 HTML 保存面板；可用浏览器打开后打印为 PDF（${response.count} 道）`)
+    else if (response?.printCompleted) setResult(`系统已完成打印或另存操作（${response.count} 道）`)
+    else if (response?.printCancelled) setResult("已取消打印/另存为 PDF")
+    else if (response?.printDismissed) setResult("系统打印面板已关闭")
   }
 
   return <section className="exportPage">
+    <header className="sectionIntro"><h1>导出错题</h1><p>选择导出范围和内容，并在右侧确认文档结构。</p></header>
     <div className="exportToolbar"><button onClick={onBack}><Icon name="left" /> 返回设置</button><span>{selected.length} 道错题将被导出</span></div>
     <div className="exportLayout">
       <div className="exportOptions">
         <div className="exportBlock"><h2>文件格式</h2><div className="formatChoices">
-          <button className={format === "pdf" ? "selected" : ""} onClick={() => setFormat("pdf")}><b>PDF</b><span>系统打印预览<br />可分享或存储到文件</span></button>
+          <button className={format === "pdf" ? "selected" : ""} onClick={() => setFormat("pdf")}><b>PDF</b><span>本地生成 PDF<br />题目、图片和手写一并导出</span></button>
           <button className={format === "md" ? "selected" : ""} onClick={() => setFormat("md")}><b>MD</b><span>Markdown 压缩包<br />正文与图片分离</span></button>
         </div></div>
         <div className="exportBlock"><h2>导出范围</h2><select value={scope} onChange={event => setScope(event.target.value)}>
@@ -540,7 +664,7 @@ function MistakeExport({ allRecords, filteredRecords, action, onBack }) {
           {[["question", "完整原题"], ["answer", "实时匹配答案"], ["source", "来源与卡片 ID"], ["review", "复习记录"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={include[key]} onChange={() => toggle(key)} /><span>{label}</span></label>)}
         </div></div>
         <div className="exportBlock"><h2>文件名</h2><div className="filenameInput"><input value={filename} onChange={event => setFilename(event.target.value)} /><b>{format === "md" ? ".zip" : ".pdf"}</b></div>{format === "md" && <small className="exportHint">压缩包内包含 UTF-8 Markdown 和 assets 图片目录</small>}</div>
-        <button className="exportPrimary" disabled={!selected.length || !Object.values(include).some(Boolean)} onClick={runExport}><Icon name="download" /> {format === "pdf" ? "生成 PDF 并打开打印面板" : "导出并另存为"}</button>
+        <button className="exportPrimary" disabled={!selected.length || !Object.values(include).some(Boolean)} onClick={runExport}><Icon name="download" /> {format === "pdf" ? "生成并另存 PDF" : "导出并另存为"}</button>
         {result && <p className="exportResult">{result}</p>}
       </div>
       <div className="exportPreview"><header><span><strong>导出预览</strong><small>{format === "pdf" ? "A4 文档" : "Markdown 文档"}</small></span><b>{selected.length} 道</b></header><div className={`previewPaper ${format}`}>

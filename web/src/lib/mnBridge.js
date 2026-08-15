@@ -2,7 +2,8 @@ import { previewSend } from "./previewBridge"
 
 const BRIDGE_URL = "mnaddon://bridge?payload="
 
-const isBrowserPreview = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname)
+const isBrowserPreview = window.__MN_FULL_UI_PREVIEW__ === true ||
+  ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname)
 
 function receive() {
   window.__MNBridgePending = window.__MNBridgePending || {}

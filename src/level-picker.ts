@@ -5,12 +5,18 @@ import { LEVEL_DESCRIPTIONS, MistakeLevel } from "./mistake-domain"
  * Use MarginNote's own selector instead of mounting a second native overlay.
  * Presenting a UIView from a UIWebView delegate callback can crash on iPad.
  */
-export async function chooseMistakeLevel(current?: MistakeLevel): Promise<MistakeLevel | undefined> {
+export async function chooseMistakeLevel(current?: MistakeLevel, count = 1): Promise<MistakeLevel | undefined> {
   await delay(0.08)
   const options = ([0, 1, 2, 3, 4, 5] as MistakeLevel[]).map(level =>
     `错题${level}级 · ${LEVEL_DESCRIPTIONS[level]}${current === level ? "（当前）" : ""}`
   )
-  const result = await select(options, "标记掌握状态", "请选择这道题目前的掌握状态", true)
+  const batch = count > 1
+  const result = await select(
+    options,
+    batch ? `批量标记 ${count} 道错题` : "标记掌握状态",
+    batch ? "所选卡片将统一使用该掌握等级" : "请选择这道题目前的掌握状态",
+    true
+  )
   return result.index >= 0 && result.index <= 5 ? result.index as MistakeLevel : undefined
 }
 

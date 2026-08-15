@@ -11,6 +11,8 @@ export interface MistakeState {
   records: Record<string, MistakeRecord>
 }
 
+let cachedState: MistakeState | undefined
+
 function emptyState(): MistakeState {
   return { version: 2, records: {} }
 }
@@ -71,30 +73,31 @@ function stateFrom(value: unknown): MistakeState | undefined {
 }
 
 export function loadMistakeState(): MistakeState {
+  if (cachedState) return cachedState
   const primary = stateFrom(getLocalDataByKey(STORAGE_KEY))
   const backup = stateFrom(backupValue(BACKUP_KEY))
   const currentSources = [backup, primary].filter(Boolean) as MistakeState[]
   if (!currentSources.length) {
     const legacy = stateFrom(getLocalDataByKey(LEGACY_STORAGE_KEY)) ??
       stateFrom(backupValue(LEGACY_BACKUP_KEY))
-    if (!legacy) return emptyState()
+    if (!legacy) return cachedState = emptyState()
     // Persist migration immediately so removing a record later cannot resurrect it
     // from the read-only v1 store on the next load.
     saveMistakeState(legacy)
-    return legacy
+    return cachedState = legacy
   }
   const records: Record<string, MistakeRecord> = {}
   for (const source of currentSources) Object.assign(records, source.records)
-  return { version: 2, records }
+  return cachedState = { version: 2, records }
 }
 
 export function saveMistakeState(state: MistakeState): void {
+  cachedState = state
   const serialized = JSON.stringify({ version: 2, records: state.records })
   setLocalDataByKey(serialized, STORAGE_KEY)
   try {
     const defaults = NSUserDefaults.standardUserDefaults()
     defaults.setObjectForKey(serialized, BACKUP_KEY)
-    defaults.synchronize()
   } catch {
     // Add-on-local storage remains available on older MN4 builds.
   }

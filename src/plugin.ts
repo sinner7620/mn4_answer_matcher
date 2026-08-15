@@ -54,6 +54,7 @@ import {
 import {
   bindMistakeNotebook,
   markQuestionAsMistake,
+  markQuestionsAsMistakes,
   mistakeAnswerContext,
   mistakeRecordForSourceQuestion,
   openLinkedMistakeOrSource,
@@ -77,12 +78,16 @@ function notebookTitle(notebookId: string): string {
   return MN.db.getNotebookById(notebookId)?.title?.trim() || "未命名脑图"
 }
 
-function selectedQuestion(): NodeNote | undefined {
+function selectedQuestions(): NodeNote[] {
   const selected = NodeNote.getSelectedNodes()
-  if (selected.length) return selected[0]
-  if (self.lastClickedNote) return new NodeNote(self.lastClickedNote)
+  if (selected.length) return selected
+  if (self.lastClickedNote) return [new NodeNote(self.lastClickedNote)]
   const focus = MN.notebookController?.focusNote
-  return focus ? new NodeNote(focus) : undefined
+  return focus ? [new NodeNote(focus)] : []
+}
+
+function selectedQuestion(): NodeNote | undefined {
+  return selectedQuestions()[0]
 }
 
 interface MindMapCandidate extends BindingTarget {
@@ -651,13 +656,22 @@ export async function onMistakeToolbarClick(): Promise<void> {
   hideAnswerToolbar()
   try {
     const notebookId = currentNotebookId()
-    const question = selectedQuestion()
-    if (!notebookId || !question) return showHUD("请先选中一张题目卡片")
-    const previous = mistakeRecordForSourceQuestion(question, notebookId)
-    const level = await chooseMistakeLevel(previous?.level)
+    const questions = selectedQuestions()
+    if (!notebookId || !questions.length) return showHUD("请先选中题目卡片")
+    const previous = questions.length === 1
+      ? mistakeRecordForSourceQuestion(questions[0], notebookId)
+      : undefined
+    const level = await chooseMistakeLevel(previous?.level, questions.length)
     if (level === undefined) return
-    const record = await markQuestionAsMistake(question, notebookId, level)
-    if (!record) return
+    if (questions.length === 1) {
+      const record = await markQuestionAsMistake(questions[0], notebookId, level)
+      if (!record) return
+    } else {
+      const result = await markQuestionsAsMistakes(questions, notebookId, level)
+      const summary = [`新增 ${result.added} 道`, `更新 ${result.updated} 道`]
+      if (result.failed) summary.push(`失败 ${result.failed} 道`)
+      showHUD(`批量标记完成：${summary.join("，")}`, 5)
+    }
     notifyWorkbenchDataChanged()
   } catch (error) {
     MN.error(error)
