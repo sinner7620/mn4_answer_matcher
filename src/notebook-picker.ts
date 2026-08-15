@@ -5,6 +5,8 @@ export interface NotebookPickerItem {
   title: string
 }
 
+export const NOTEBOOK_PICKER_BACK_ID = "__mn_answer_matcher_back__"
+
 const ROW_HEIGHT = 52
 const HEADER_HEIGHT = 72
 const FOOTER_HEIGHT = 58
@@ -107,17 +109,22 @@ function renderPicker(): void {
   }
 
   const footerY = HEADER_HEIGHT + pageSize * ROW_HEIGHT + 7
-  const gap = 10
-  const footerButtonWidth = (width - 32 - gap * 2) / 3
+  const gap = 8
+  const footerButtonWidth = (width - 32 - gap * 3) / 4
   panel.addSubview(button("取消", { x: 16, y: footerY, width: footerButtonWidth, height: 42 }, -1))
   panel.addSubview(button(
-    page > 0 ? "上一页" : "已是首页",
+    "返回",
     { x: 16 + footerButtonWidth + gap, y: footerY, width: footerButtonWidth, height: 42 },
+    -5
+  ))
+  panel.addSubview(button(
+    page > 0 ? "上一页" : "已是首页",
+    { x: 16 + (footerButtonWidth + gap) * 2, y: footerY, width: footerButtonWidth, height: 42 },
     page > 0 ? -2 : -4
   ))
   panel.addSubview(button(
     page + 1 < pageCount ? "下一页" : "已是末页",
-    { x: 16 + (footerButtonWidth + gap) * 2, y: footerY, width: footerButtonWidth, height: 42 },
+    { x: 16 + (footerButtonWidth + gap) * 3, y: footerY, width: footerButtonWidth, height: 42 },
     page + 1 < pageCount ? -3 : -4,
     page + 1 < pageCount
   ))
@@ -140,6 +147,7 @@ export function chooseNotebook(items: NotebookPickerItem[]): Promise<NotebookPic
 export function onNotebookPickerAction(sender: UIButton): void {
   const tag = Number(sender.tag)
   if (tag === -1) return closePicker()
+  if (tag === -5) return closePicker({ id: NOTEBOOK_PICKER_BACK_ID, title: "返回" })
   if (tag === -2) {
     self.notebookPickerPage = Math.max(0, Number(self.notebookPickerPage) - 1)
     return renderPicker()

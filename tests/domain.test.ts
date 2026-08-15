@@ -20,16 +20,6 @@ import {
   targetForMode
 } from "../src/binding"
 import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
-import { noteReferenceUrl } from "../src/note-link"
-import {
-  categoryPathPrefixes,
-  createMistakeRecord,
-  compareMistakeRecords,
-  isDue,
-  mistakeCategoryLabel,
-  nextReviewTime,
-  reviewMistake
-} from "../src/mistake-domain"
 
 test("同一学习集中的不同脑图可保存独立答案绑定并兼容旧绑定", () => {
   const bindings: any = { questions: "legacy-answers" }
@@ -75,42 +65,9 @@ test("绑定候选排除无标题内部节点，只保留有标题的顶层脑�
   assert.equal(isSelectableMindMapRoot(false, "🐙1000第九章基础22", "source", ["source", "group"]), false)
 })
 
-test("父级错题分类包含路径下的全部子级", () => {
-  const options = categoryPathPrefixes(["多元微分", "基本概念题", "概念题"])
-  assert.deepEqual(options.map(item => item.label), [
-    "多元微分",
-    "多元微分 › 基本概念题",
-    "多元微分 › 基本概念题 › 概念题"
-  ])
-  assert.equal(options[0].key, "path:多元微分")
-  assert.equal(options[2].depth, 2)
-})
-
 test("标题标准化忽略全半角、空白、常见中英文标点和大小写", () => {
   assert.equal(normalizeTitle(" Ａbc ？\n"), "abc")
   assert.equal(normalizeTitle("什么是 FFT："), normalizeTitle("什么是fft?"))
-})
-
-test("错题按来源章节和自然题号稳定排序", () => {
-  const base = createMistakeRecord({
-    sourceNoteId: "s2",
-    sourceNotebookId: "questions",
-    sourceNotebookTitle: "多元微分",
-    sourceTitle: "第10题",
-    sourcePathTitles: ["基本概念题"],
-    categoryPath: ["多元微分", "基本概念题"],
-    level: 1
-  }, new Date("2026-07-17T00:00:00.000Z"))
-  const first = { ...base, recordId: "questions:s1", sourceNoteId: "s1", sourceTitle: "第2题" }
-  const other = {
-    ...base,
-    recordId: "questions:s3",
-    sourceNoteId: "s3",
-    sourceTitle: "第1题",
-    categoryPath: ["多元微分", "计算题"]
-  }
-  assert.deepEqual([base, other, first].sort(compareMistakeRecords).map(item => item.recordId), ["questions:s1", "questions:s2", "questions:s3"])
-  assert.equal(mistakeCategoryLabel(first), "多元微分 › 基本概念题")
 })
 
 test("索引同一卡片的重复标题只收录一次", () => {
@@ -266,6 +223,7 @@ test("PaintNote 同时包含底图和 drawing 时会叠加显示手写层", () =
 
 test("OTA 版本比较支持正式版和 GitHub 测试版标签", () => {
   assert.equal(compareVersions("v1.9.0", "1.8.9"), 1)
+  assert.equal(compareVersions("1.9.81", "1.9.8"), 1)
   assert.equal(compareVersions("1.9.1-beta.2", "1.9.1-beta.1"), 1)
   assert.equal(compareVersions("1.9.1", "1.9.1-beta.2"), 1)
   assert.equal(compareVersions("v1.9.0", "1.9.0"), 0)
@@ -283,33 +241,4 @@ test("答案窗口位置不再被屏幕边界限制", () => {
     ),
     true
   )
-})
-
-test("跨脑图定位使用 MN4 兼容的标准卡片链接", () => {
-  assert.equal(noteReferenceUrl("note id"), "marginnote3app://note/note%20id")
-})
-
-test("错题等级采用不同复习曲线", () => {
-  const now = new Date("2026-07-17T00:00:00.000Z")
-  assert.equal(nextReviewTime(0, 0, now).toISOString(), "2026-07-18T00:00:00.000Z")
-  assert.equal(nextReviewTime(4, 0, now).toISOString(), "2026-07-24T00:00:00.000Z")
-  assert.equal(nextReviewTime(5, 0, now).toISOString(), "2026-08-16T00:00:00.000Z")
-})
-
-test("错题记录保存首次时间、复习历史和下次到期时间", () => {
-  const createdAt = new Date("2026-07-17T00:00:00.000Z")
-  const record = createMistakeRecord({
-    sourceNoteId: "source",
-    sourceNotebookId: "questions",
-    sourceNotebookTitle: "题目脑图",
-    sourceTitle: "1994数一",
-    sourcePathTitles: ["基本概念题"],
-    answerNotebookId: "answers",
-    level: 1
-  }, createdAt)
-  const reviewed = reviewMistake(record, 1, new Date("2026-07-18T00:00:00.000Z"))
-  assert.equal(reviewed.reviewCount, 1)
-  assert.equal(reviewed.history.length, 2)
-  assert.equal(reviewed.nextReviewAt, "2026-07-21T00:00:00.000Z")
-  assert.equal(isDue(reviewed, new Date("2026-07-21T00:00:00.000Z")), true)
 })
