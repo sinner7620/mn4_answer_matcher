@@ -35,5 +35,10 @@
   "mnRails": {
     "template": "web",
     "version": "0.5.8"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "core-js"
+    ]
   }
 }
