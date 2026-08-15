@@ -506,7 +506,6 @@ export const lifecycle = defineLifecycleHandlers({
       self.addon = { key: "mn4-answer-matcher", title: "答案匹配" }
       self.lastClickedNote = undefined
       self.answerToolbar = createAnswerToolbar()
-      self.answerToolbarShownAt = 0
       eventObservers.remove()
       eventObservers.add()
       scheduleAutomaticUpdateCheck()
@@ -547,9 +546,19 @@ export const handlers = defineEventHandlers<(typeof events)[number]>({
   },
   async onClosePopupMenuOnNote() {
     if (self.window !== MN.currentWindow) return
-    const shownAt = self.answerToolbarShownAt
+    // The close event of a previously opened card can arrive after the next
+    // card's open event (A→B switching), so a timestamp comparison cannot tell
+    // an old close from the current one. Let the selection state settle, then
+    // only hide when no card is selected anymore — i.e. the user really tapped
+    // empty canvas space. While the current card stays selected, the toolbar
+    // must keep following it instead of flashing away.
     await delay(0.15)
-    if (shownAt === self.answerToolbarShownAt) hideAnswerToolbar()
+    try {
+      if (NodeNote.getSelectedNodes().length > 0) return
+    } catch {
+      // Selection state unavailable; fall back to hiding the toolbar.
+    }
+    hideAnswerToolbar()
   }
 })
 

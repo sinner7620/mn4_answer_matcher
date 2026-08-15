@@ -62,7 +62,6 @@ export function showAnswerToolbar(winRect: string): void {
   if (!self.answerToolbar.superview) {
     MN.studyController.view.addSubview(self.answerToolbar)
   }
-  self.answerToolbarShownAt = Date.now()
 }
 
 export function hideAnswerToolbar(): void {
