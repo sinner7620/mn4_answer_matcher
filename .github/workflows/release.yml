@@ -36,7 +36,7 @@ jobs:
         with:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          files: dist/mn4-answer-matcher-v${{ github.ref_name }}.mnaddon
+          files: dist/mn4-answer-matcher-${{ github.ref_name }}.mnaddon
       - name: Sync release to Gitee mirror
         if: startsWith(github.ref, 'refs/tags/')
         env:
