@@ -40,6 +40,8 @@ export function showAnswerToolbar(winRect: string): void {
   const rect = parseWinRect(winRect)
   if (!rect || !self.answerToolbar) return
 
+  self.answerToolbarShownAt = Date.now()
+
   const studyFrame = MN.studyController.view.frame
   const cardX = rect.x - studyFrame.x
   const cardY = rect.y - studyFrame.y

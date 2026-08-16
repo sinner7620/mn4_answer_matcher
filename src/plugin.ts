@@ -41,6 +41,7 @@ import {
   showAnswerCard
 } from "./answer-card-view"
 import { checkForUpdates, scheduleAutomaticUpdateCheck } from "./updater"
+import { scheduleTelemetryReport } from "./telemetry"
 import {
   chooseNotebook,
   closeNotebookPicker,
@@ -65,6 +66,47 @@ function selectedQuestion(): NodeNote | undefined {
   if (self.lastClickedNote) return new NodeNote(self.lastClickedNote)
   const focus = MN.notebookController?.focusNote
   return focus ? new NodeNote(focus) : undefined
+}
+
+function parsePopupWinRect(value: unknown): { x: number; y: number; width: number; height: number } | undefined {
+  if (typeof value !== "string") return
+  try {
+    const values = JSON.parse(`[${value.replace(/[{}]/g, "")}]`) as number[]
+    if (values.length !== 4 || values.some(item => !Number.isFinite(item))) return
+    return { x: values[0], y: values[1], width: values[2], height: values[3] }
+  } catch {
+    return
+  }
+}
+
+function samePopupTarget(
+  expected: { x: number; y: number; width: number; height: number } | undefined,
+  actual: { x: number; y: number; width: number; height: number } | undefined
+): boolean {
+  if (!expected || !actual) return false
+  const tolerance = 2
+  return Math.abs(expected.x - actual.x) <= tolerance &&
+    Math.abs(expected.y - actual.y) <= tolerance &&
+    Math.abs(expected.width - actual.width) <= tolerance &&
+    Math.abs(expected.height - actual.height) <= tolerance
+}
+
+function isCurrentNotePopupStillVisible(): boolean {
+  try {
+    const menu = PopupMenu.currentMenu()
+    if (!menu?.visible) return false
+
+    const expectedTarget = self.answerToolbarTargetRect as
+      | { x: number; y: number; width: number; height: number }
+      | undefined
+    if (samePopupTarget(expectedTarget, menu.targetWinRect)) return true
+
+    const focus = MN.notebookController?.visibleFocusNote ?? MN.notebookController?.focusNote
+    const focusNoteId = focus?.noteId
+    return Boolean(focusNoteId && self.answerToolbarNoteId && focusNoteId === self.answerToolbarNoteId)
+  } catch {
+    return false
+  }
 }
 
 interface MindMapCandidate extends BindingTarget {
@@ -506,9 +548,13 @@ export const lifecycle = defineLifecycleHandlers({
       self.addon = { key: "mn4-answer-matcher", title: "答案匹配" }
       self.lastClickedNote = undefined
       self.answerToolbar = createAnswerToolbar()
+      self.answerToolbarShownAt = 0
+      self.answerToolbarNoteId = undefined
+      self.answerToolbarTargetRect = undefined
       eventObservers.remove()
       eventObservers.add()
       scheduleAutomaticUpdateCheck()
+      scheduleTelemetryReport()
     },
     notebookWillOpen(notebookId: string) {
       eventObservers.remove()
@@ -517,6 +563,8 @@ export const lifecycle = defineLifecycleHandlers({
     notebookWillClose() {
       eventObservers.remove()
       self.lastClickedNote = undefined
+      self.answerToolbarNoteId = undefined
+      self.answerToolbarTargetRect = undefined
       hideAnswerToolbar()
       closeAnswerCard()
       closeNotebookPicker()
@@ -531,6 +579,7 @@ export const lifecycle = defineLifecycleHandlers({
   classMethods: {
     applicationWillEnterForeground() {
       scheduleAutomaticUpdateCheck()
+      scheduleTelemetryReport()
     },
     addonWillDisconnect() {
       clearIndex()
@@ -541,23 +590,21 @@ export const lifecycle = defineLifecycleHandlers({
 export const handlers = defineEventHandlers<(typeof events)[number]>({
   onPopupMenuOnNote(sender) {
     if (self.window !== MN.currentWindow) return
-    self.lastClickedNote = sender.userInfo?.note
-    showAnswerToolbar((sender.userInfo as any).winRect)
+    const note = sender.userInfo?.note
+    const winRect = (sender.userInfo as any).winRect
+    self.lastClickedNote = note
+    self.answerToolbarNoteId = note?.noteId
+    self.answerToolbarTargetRect = parsePopupWinRect(winRect)
+    showAnswerToolbar(winRect)
   },
   async onClosePopupMenuOnNote() {
     if (self.window !== MN.currentWindow) return
-    // The close event of a previously opened card can arrive after the next
-    // card's open event (A→B switching), so a timestamp comparison cannot tell
-    // an old close from the current one. Let the selection state settle, then
-    // only hide when no card is selected anymore — i.e. the user really tapped
-    // empty canvas space. While the current card stays selected, the toolbar
-    // must keep following it instead of flashing away.
+    const shownAt = self.answerToolbarShownAt
     await delay(0.15)
-    try {
-      if (NodeNote.getSelectedNodes().length > 0) return
-    } catch {
-      // Selection state unavailable; fall back to hiding the toolbar.
-    }
+    if (shownAt !== self.answerToolbarShownAt) return
+    if (isCurrentNotePopupStillVisible()) return
+    self.answerToolbarNoteId = undefined
+    self.answerToolbarTargetRect = undefined
     hideAnswerToolbar()
   }
 })
