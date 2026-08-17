@@ -17,6 +17,7 @@ export interface MistakeRecord {
   sourcePathTitles: string[]
   categoryPath: string[]
   manualCategory?: string
+  manualCategories?: string[]
   answerNotebookId?: string
   answerRootNodeId?: string
   level: MistakeLevel
@@ -39,7 +40,7 @@ export function sourceRecordKey(sourceNotebookId: string, sourceNoteId: string):
 }
 
 export function mistakeCategoryPath(record: MistakeRecord): string[] {
-  const manual = cleanPart(record.manualCategory ?? "")
+  const manual = cleanPart(record.manualCategory ?? record.manualCategories?.[0] ?? "")
   if (manual) return [manual]
   const stored = (record.categoryPath ?? []).map(cleanPart).filter(Boolean)
   if (stored.length) return stored
@@ -78,6 +79,13 @@ export function categoryPathPrefixes(path: string[]): MistakeCategoryOption[] {
 
 export function mistakeCategoryLabel(record: MistakeRecord): string {
   return mistakeCategoryPath(record).slice(0, 3).join(" › ") || "未分类"
+}
+
+/** 记录的当前标签列表：优先 manualCategories，旧记录回退到单个 manualCategory。 */
+export function manualTagsOf(record: Pick<MistakeRecord, "manualCategories" | "manualCategory"> | undefined): string[] {
+  if (!record) return []
+  if (record.manualCategories?.length) return record.manualCategories
+  return record.manualCategory ? [record.manualCategory] : []
 }
 
 export function compareMistakeRecords(a: MistakeRecord, b: MistakeRecord): number {
@@ -134,6 +142,7 @@ export interface NewMistakeInput {
   sourcePathTitles: string[]
   categoryPath?: string[]
   manualCategory?: string
+  manualCategories?: string[]
   answerNotebookId?: string
   answerRootNodeId?: string
   level: MistakeLevel

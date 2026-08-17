@@ -19,12 +19,20 @@ var __MNAM_WEB_ADDON_GLOBAL__ = (function () {
     methods.notebookWillOpen = function () {
       call(core.lifecycle.instanceMethods, "notebookWillOpen", arguments);
       if (__MNAM_WEB_PANEL_GLOBAL__.shouldRestorePanel()) {
-        __MNAM_WEB_PANEL_GLOBAL__.showPanel(self.webController);
+        if (self.webController && self.webController.preserveAcrossNotebookSwitch) {
+          __MNAM_WEB_PANEL_GLOBAL__.restorePanelAfterNotebookSwitch(self.webController);
+        } else {
+          __MNAM_WEB_PANEL_GLOBAL__.showPanel(self.webController);
+        }
       }
     };
 
     methods.notebookWillClose = function () {
-      __MNAM_WEB_PANEL_GLOBAL__.hidePanel(self.webController, false);
+      if (self.pendingMistakeNavigation && __MNAM_WEB_PANEL_GLOBAL__.isVisible(self.webController)) {
+        __MNAM_WEB_PANEL_GLOBAL__.preservePanelForNotebookSwitch(self.webController);
+      } else {
+        __MNAM_WEB_PANEL_GLOBAL__.hidePanel(self.webController, false);
+      }
       call(core.lifecycle.instanceMethods, "notebookWillClose", arguments);
     };
 

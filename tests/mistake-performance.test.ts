@@ -14,6 +14,18 @@ test("错题列表日常刷新不重新扫描全部脑图节点", () => {
   assert.match(workbench, /MN\.db\.getNoteById\(stored\.sourceNoteId\)/)
 })
 
+test("标签恢复只补充缺失错题，不覆盖或删除已有复习记录", () => {
+  const source = readFileSync("src/mistake-manager.ts", "utf8")
+  const recovery = source.slice(
+    source.indexOf("async function recoverMistakesFromSourceTagsInternal"),
+    source.indexOf("function recordById")
+  )
+
+  assert.match(recovery, /if \(state\.records\[recordId\]\) \{[\s\S]*existing\+\+[\s\S]*continue/)
+  assert.match(recovery, /if \(added\) saveMistakeState\(state\)/)
+  assert.doesNotMatch(recovery, /removeMistakeRecord\s*\(/)
+})
+
 test("错题状态启用会话缓存且不强制同步 NSUserDefaults", () => {
   const source = readFileSync("src/mistake-store.ts", "utf8")
 
@@ -49,7 +61,8 @@ test("错题浏览提供多选、批量改等级和二次确认取消", () => {
   const ui = readFileSync("web/src/main.jsx", "utf8")
   const bridge = readFileSync("src/rails-core.ts", "utf8")
 
-  assert.match(ui, /"多选批量"/)
+  assert.match(ui, /"选择"/)
+  assert.match(ui, /"完成"/)
   assert.match(ui, /action\("reviewMistakes"/)
   assert.match(ui, /removeArmed \? `确认取消/)
   assert.match(bridge, /command === "reviewMistakes"/)

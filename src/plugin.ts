@@ -44,6 +44,7 @@ import {
   showAnswerCard
 } from "./answer-card-view"
 import { checkForUpdates, scheduleAutomaticUpdateCheck } from "./updater"
+import { scheduleTelemetryReport } from "./telemetry"
 import { chooseNotebook, closeNotebookPicker, onNotebookPickerAction } from "./notebook-picker"
 import { completePendingNoteNavigation } from "./note-navigation"
 import {
@@ -63,9 +64,17 @@ import {
   openMistakeReviewCenter,
   repairAndOrganizeMistakes,
   scheduleMistakeReviewReminder,
+  scheduleMistakeTagRecovery,
   startMistakeReminderTimer,
   stopMistakeReminderTimer
 } from "./mistake-manager"
+
+declare const PopupMenu: {
+  currentMenu(): {
+    visible?: boolean
+    targetWinRect?: { x: number; y: number; width: number; height: number }
+  } | undefined
+}
 
 const events = ["PopupMenuOnNote", "ClosePopupMenuOnNote"] as const
 export const eventObservers = eventObserverController([...events])
@@ -88,6 +97,50 @@ function selectedQuestions(): NodeNote[] {
 
 function selectedQuestion(): NodeNote | undefined {
   return selectedQuestions()[0]
+}
+
+function parsePopupWinRect(value: unknown): { x: number; y: number; width: number; height: number } | undefined {
+  if (typeof value !== "string") return
+  try {
+    const values = JSON.parse(`[${value.replace(/[{}]/g, "")}]`) as number[]
+    if (values.length !== 4 || values.some(item => !Number.isFinite(item))) return
+    return { x: values[0], y: values[1], width: values[2], height: values[3] }
+  } catch {
+    return
+  }
+}
+
+function samePopupTarget(
+  expected: { x: number; y: number; width: number; height: number } | undefined,
+  actual: { x: number; y: number; width: number; height: number } | undefined
+): boolean {
+  if (!expected || !actual) return false
+  const tolerance = 2
+  return Math.abs(expected.x - actual.x) <= tolerance &&
+    Math.abs(expected.y - actual.y) <= tolerance &&
+    Math.abs(expected.width - actual.width) <= tolerance &&
+    Math.abs(expected.height - actual.height) <= tolerance
+}
+
+function isCurrentNotePopupStillVisible(): boolean {
+  try {
+    const menu = PopupMenu.currentMenu()
+    if (!menu?.visible) return false
+
+    const expectedTarget = self.answerToolbarTargetRect as
+      | { x: number; y: number; width: number; height: number }
+      | undefined
+    if (samePopupTarget(expectedTarget, menu.targetWinRect)) return true
+
+    // targetWinRect should normally identify the current note popup. The
+    // focus-note fallback covers MarginNote builds where that rect is briefly
+    // unavailable while the new popup is being installed.
+    const focus = MN.notebookController?.visibleFocusNote ?? MN.notebookController?.focusNote
+    const focusNoteId = focus?.noteId
+    return Boolean(focusNoteId && self.answerToolbarNoteId && focusNoteId === self.answerToolbarNoteId)
+  } catch {
+    return false
+  }
 }
 
 interface MindMapCandidate extends BindingTarget {
@@ -887,9 +940,13 @@ export const lifecycle = defineLifecycleHandlers({
       self.lastClickedNote = undefined
       self.answerToolbar = createAnswerToolbar()
       self.answerToolbarShownAt = 0
+      self.answerToolbarNoteId = undefined
+      self.answerToolbarTargetRect = undefined
       eventObservers.remove()
       eventObservers.add()
       scheduleAutomaticUpdateCheck()
+      scheduleTelemetryReport()
+      scheduleMistakeTagRecovery()
       scheduleMistakeReviewReminder()
       startMistakeReminderTimer()
     },
@@ -897,10 +954,13 @@ export const lifecycle = defineLifecycleHandlers({
       eventObservers.remove()
       eventObservers.add()
       void completePendingNoteNavigation(notebookId)
+      scheduleMistakeTagRecovery(notebookId)
     },
     notebookWillClose() {
       eventObservers.remove()
       self.lastClickedNote = undefined
+      self.answerToolbarNoteId = undefined
+      self.answerToolbarTargetRect = undefined
       hideAnswerToolbar()
       closeAnswerCard()
       closeNotebookPicker()
@@ -919,6 +979,8 @@ export const lifecycle = defineLifecycleHandlers({
   classMethods: {
     applicationWillEnterForeground() {
       scheduleAutomaticUpdateCheck()
+      scheduleTelemetryReport()
+      scheduleMistakeTagRecovery()
       scheduleMistakeReviewReminder()
     },
     addonWillDisconnect() {
@@ -931,14 +993,22 @@ export const lifecycle = defineLifecycleHandlers({
 export const handlers = defineEventHandlers<(typeof events)[number]>({
   onPopupMenuOnNote(sender) {
     if (self.window !== MN.currentWindow) return
-    self.lastClickedNote = sender.userInfo?.note
-    showAnswerToolbar((sender.userInfo as any).winRect)
+    const note = sender.userInfo?.note
+    const winRect = (sender.userInfo as any).winRect
+    self.lastClickedNote = note
+    self.answerToolbarNoteId = note?.noteId
+    self.answerToolbarTargetRect = parsePopupWinRect(winRect)
+    showAnswerToolbar(winRect)
   },
   async onClosePopupMenuOnNote() {
     if (self.window !== MN.currentWindow) return
     const shownAt = self.answerToolbarShownAt
     await delay(0.15)
-    if (shownAt === self.answerToolbarShownAt) hideAnswerToolbar()
+    if (shownAt !== self.answerToolbarShownAt) return
+    if (isCurrentNotePopupStillVisible()) return
+    self.answerToolbarNoteId = undefined
+    self.answerToolbarTargetRect = undefined
+    hideAnswerToolbar()
   }
 })
 

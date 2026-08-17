@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import MNBridge from "./lib/mnBridge"
 import { Icon } from "./icons"
-import { buildSourceInsights } from "../../src/source-insights"
+import { buildMindMapOptions, buildParentInsights, sourceInsightKey } from "../../src/source-insights"
 import "./styles.css"
 import "./overview.css"
 import "./overview-polish.css"
@@ -13,6 +13,8 @@ import "./review-actions.css"
 import "./export.css"
 import "./layout-reference.css"
 import "./beta-ui.css"
+import "./ui-reference-final.css"
+import "./export-beta2.css"
 
 const levelNames = ["未掌握", "已理解", "可完成", "已掌握", "已稳定", "已迁移"]
 const levelExplanations = [
@@ -99,6 +101,8 @@ function App() {
   const [categoryPath, setCategoryPath] = useState([])
   const [selectedId, setSelectedId] = useState("")
   const [detail, setDetail] = useState(null)
+  const selectedIdRef = useRef("")
+  selectedIdRef.current = selectedId
 
   async function load() {
     setBusy(true)
@@ -107,9 +111,13 @@ function App() {
       const next = await MNBridge.send("dashboard")
       setData(next)
       const records = next?.mistakes?.records || []
-      if (selectedId && !records.some(item => item.recordId === selectedId)) {
+      const currentSelectedId = selectedIdRef.current
+      if (currentSelectedId && !records.some(item => item.recordId === currentSelectedId)) {
         setSelectedId("")
         setDetail(null)
+      }
+      else if (currentSelectedId) {
+        setDetail(await MNBridge.send("mistakeDetail", { recordId: currentSelectedId }))
       }
     } catch (reason) {
       setError(reason.message || String(reason))
@@ -170,7 +178,7 @@ function App() {
     return (data?.mistakes?.records || []).filter(item =>
       (level === "all" || String(item.level) === level) &&
       (!categoryPath.length || categoryPath.every((part, index) => (item.categoryPath || [])[index] === part)) &&
-      (!needle || normalizeSearch(`${item.sourceTitle} ${item.sourceNotebookTitle} ${item.categoryLabel} ${(item.sourcePathTitles || []).join(" ")} ${item.manualCategory || ""}`).includes(needle))
+      (!needle || normalizeSearch(`${item.sourceTitle} ${item.sourceNotebookTitle} ${item.categoryLabel} ${(item.sourcePathTitles || []).join(" ")} ${(item.manualCategories || []).join(" ")} ${item.manualCategory || ""}`).includes(needle))
     )
   }, [data, query, level, categoryPath])
 
@@ -184,11 +192,11 @@ function App() {
   return <div className="shell">
     <main>
       <header className="topBar">
-        <div className="appBrand"><span><img src="../logo.png" alt="MN4 Answer Matcher" /></span><strong>MN4 Answer Matcher</strong></div>
+        <div className="appBrand"><span><img src="./logo.png" alt="MN4 Answer Matcher" /></span><strong>MN4 Answer Matcher</strong></div>
         <nav className="topNav">{entries.map(([key, name, count]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><strong>{name}</strong>{count > 0 && <b>{count}</b>}</button>)}</nav>
         <div className="topTools"><small>v{data?.version || "…"}</small><button className="iconButton" onClick={load} disabled={busy}><Icon name="refresh" /></button></div>
       </header>
-      <div className="pageHeading"><h1>{tab === "overview" ? "错题总览" : tab === "mistakes" ? "错题浏览" : tab === "review" ? "到期复习" : tab === "export" ? "导出错题" : "设置"}</h1><p>{tab === "overview" ? "掌握情况、到期复习和最近错题概览" : tab === "mistakes" ? "全部错题保留在原脑图中，可分类、核对答案并定位原题" : tab === "export" ? "从当前错题记录生成可另存的 PDF 或 Markdown 文件" : "跨脑图答案与错题工作台"}</p></div>
+      <div className="pageHeading"><h1>{tab === "overview" ? "错题总览" : tab === "mistakes" ? "错题浏览" : tab === "review" ? "到期复习" : tab === "export" ? "导出错题" : "设置"}</h1><p>{tab === "overview" ? "掌握情况、到期复习和最近错题概览" : tab === "mistakes" ? "全部错题保留在原脑图中，可添加标签、核对答案并定位原题" : tab === "export" ? "从当前错题记录生成可另存的 PDF 或 Markdown 文件" : "跨脑图答案与错题工作台"}</p></div>
       {error && <div className="error">{error}</div>}
       {busy && <div className="loading"><i />正在读取 MarginNote 数据…</div>}
 
@@ -250,6 +258,7 @@ function App() {
           <SettingsGroup title="错题管理" items={[
           ["mistakes", "标记所选卡片错题", "支持脑图多选，统一选择错题等级", () => action("markMistake")],
           ["locate", "定位当前错题原题", "跳转到当前错题记录的原脑图位置", () => action("openCurrentMistakeSource", null, false)],
+
           ["organize", "刷新错题分类索引", "重新读取脑图标题、父节点路径和答案绑定", () => action("repairMistakes")],
           ["download", "导出错题", "以 Markdown 格式预览导出", openExport]
           ]} />
@@ -257,6 +266,7 @@ function App() {
           ["info", "当前版本", `v${data?.version || "…"} · frank`, () => action("notify", { message: `当前版本 v${data?.version || "…"}` }, false)],
           ["reset", "重置窗口位置与大小", "将工作台窗口恢复到默认尺寸", () => action("resetPanelFrame", null, false)],
           ["download", "检查插件更新", "检查 GitHub 版本并选择安装或保存", () => action("checkUpdates", null, false)]
+
           ]} />
         </div><div className="settingsGroups settingsSecondary">
           <MistakeLevelGuide reviewCurves={data?.mistakes?.reviewCurves} action={action} />
@@ -326,15 +336,14 @@ function MistakeBrowser(props) {
     <div className="browserGrid">
       <aside className="mistakeSidebar">
         <div className="filterBar">
-          <input value={props.query} onChange={event => props.setQuery(event.target.value)} placeholder="搜索题名、脑图、章节或分类" />
+          <input value={props.query} onChange={event => props.setQuery(event.target.value)} placeholder="搜索题名、脑图、章节或标签" />
           <div className="filterSelectors"><CategoryCascade records={allRecords} path={props.categoryPath} setPath={props.setCategoryPath} />
           <select value={props.level} onChange={event => props.setLevel(event.target.value)}><option value="all">全部等级</option>{levelNames.map((name, index) => <option value={String(index)} key={name}>{index}级-{name}</option>)}</select></div>
-          <div className="listToolbar"><span>共 {allRecords.length} 道错题</span><button className="batchToggle" onClick={toggleSelecting}>{selecting ? "退出多选" : "多选批量"}</button></div>
+          <div className="listToolbar"><span>共 {allRecords.length} 道错题</span><button className="batchToggle" onClick={toggleSelecting}>{selecting ? "完成" : "选择"}</button></div>
         </div>
         {selecting && <div className="batchBar active">
           <strong>已选 {selectedIds.length} 道</strong>
           <button onClick={selectVisible} disabled={!records.length}>全选</button>
-          <button onClick={() => { setSelectedIds([]); setRemoveArmed(false) }} disabled={!selectedIds.length}>清空</button>
           <button className="preview-change-level" onClick={() => setLevelPickerOpen(true)} disabled={!selectedIds.length}>更改等级</button>
           <select value={batchLevel} onChange={event => setBatchLevel(event.target.value)}>{levelNames.map((name, index) => <option value={index} key={name}>{index}级-{name}</option>)}</select>
           <button className="batchApply" onClick={changeSelectedLevel} disabled={!selectedIds.length}>修改等级</button>
@@ -342,7 +351,7 @@ function MistakeBrowser(props) {
         </div>}
         <div className="mistakeList">{records.map(item => <MistakeListItem key={item.recordId} item={item} selected={!selecting && selectedId === item.recordId} selectable={selecting} checked={selectedSet.has(item.recordId)} onClick={() => selecting ? toggleRecord(item.recordId) : openDetail(item.recordId)} />)}{!records.length && <Empty title="没有符合条件的错题" text="清空搜索或筛选条件后重试。" />}</div>
       </aside>
-      <div className={`detailPane ${selecting ? "batchSelectionPane" : ""}`}>{selecting ? null : detail ? <MistakeDetail detail={detail} customCategories={props.customCategories} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
+      <div className={`detailPane ${selecting ? "batchSelectionPane" : ""}`}>{selecting ? null : detail ? <MistakeDetail key={detail.record.recordId} detail={detail} customCategories={props.customCategories} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
     </div>
     <div id="preview-level-picker" className={levelPickerOpen ? "open" : ""} onClick={event => event.target === event.currentTarget && setLevelPickerOpen(false)}>
       <div><h2>批量更改错题等级</h2><section>{levelNames.map((name, level) => <button type="button" key={name} onClick={async () => { setBatchLevel(String(level)); setLevelPickerOpen(false); await changeSelectedLevel(level) }}><i className={`level${level}`}>{level}级</i><span>{name}</span></button>)}</section><footer><button type="button" onClick={() => setLevelPickerOpen(false)}>取消</button></footer></div>
@@ -379,6 +388,42 @@ function CategoryCascade({ records, path, setPath }) {
   </div>
 }
 
+function MindMapMultiSelect({ options, selectedKeys, setSelectedKeys, title = "统计脑图" }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const selectedSet = useMemo(() => new Set(selectedKeys), [selectedKeys])
+  const selectedOptions = options.filter(option => selectedSet.has(option.key))
+  const label = selectedKeys.length === options.length
+    ? `全部 ${options.length} 个脑图`
+    : selectedKeys.length === 1
+      ? selectedOptions[0]?.name || "1 个脑图"
+      : `已选 ${selectedKeys.length} 个脑图`
+
+  useEffect(() => {
+    if (!open) return undefined
+    const close = event => {
+      if (!ref.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener("pointerdown", close, true)
+    return () => document.removeEventListener("pointerdown", close, true)
+  }, [open])
+
+  function toggle(key) {
+    setSelectedKeys(current => {
+      if (current.includes(key)) return current.length > 1 ? current.filter(item => item !== key) : current
+      return [...current, key]
+    })
+  }
+
+  return <div className={`mindMapSelect ${open ? "open" : ""}`} ref={ref}>
+    <button type="button" className="mindMapSelectTrigger" onClick={() => setOpen(value => !value)}><span>{label}</span><Icon name={open ? "up" : "down"} /></button>
+    {open && <div className="mindMapSelectMenu">
+      <div className="mindMapSelectHead"><strong>{title}</strong><button type="button" onClick={() => setSelectedKeys(options.map(option => option.key))}>全选</button></div>
+      <div className="mindMapSelectOptions">{options.map(option => <button type="button" key={option.key} className={selectedSet.has(option.key) ? "selected" : ""} onClick={() => toggle(option.key)}><i>{selectedSet.has(option.key) ? "✓" : ""}</i><span><strong>{option.name}</strong><small>{option.notebook}</small></span><b>{option.count}</b></button>)}</div>
+    </div>}
+  </div>
+}
+
 function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
   const now = Date.now()
   const due = records.filter(item => new Date(item.nextReviewAt).getTime() <= now).length
@@ -388,32 +433,49 @@ function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
   const levelCounts = levelNames.map((_, level) => records.filter(item => item.level === level).length)
   const maxLevelCount = Math.max(1, ...levelCounts)
   const recent = [...records].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 5)
-  const sources = buildSourceInsights(records)
-  const sourceColors = ["#0f172a", "#657c68", "#c4a16b", "#df806e", "#64748b", "#8b7b86", "#94a3b8"]
-  const topSources = sources.slice(0, 6)
-  const otherCount = sources.slice(6).reduce((sum, source) => sum + source.count, 0)
-  const chartSources = [...topSources, ...(otherCount ? [{ key: "other", name: "其他来源", notebook: `${sources.length - 6} 棵题目脑图`, count: otherCount, weak: 0 }] : [])]
+  const mindMaps = useMemo(() => buildMindMapOptions(records), [records])
+  const mindMapSignature = mindMaps.map(map => map.key).join("\u001f")
+  const [selectedMapKeys, setSelectedMapKeys] = useState([])
+  useEffect(() => {
+    const available = mindMaps.map(map => map.key)
+    setSelectedMapKeys(current => {
+      const kept = current.filter(key => available.includes(key))
+      return kept.length ? kept : available
+    })
+  }, [mindMapSignature])
+  const effectiveMapKeys = selectedMapKeys.length ? selectedMapKeys : mindMaps.map(map => map.key)
+  const parentInsights = useMemo(() => buildParentInsights(records, effectiveMapKeys), [records, effectiveMapKeys.join("\u001f")])
+  const sources = parentInsights.groups
+  const sourceColors = ["#0f172a", "#657c68", "#c4a16b", "#df806e", "#64748b", "#8b7b86", "#94a3b8", "#7c8da6"]
+  const topSources = sources.slice(0, 7)
+  const remainingSources = sources.slice(7)
+  const otherCount = remainingSources.reduce((sum, source) => sum + source.count, 0)
+  const otherWeak = remainingSources.reduce((sum, source) => sum + source.weak, 0)
+  const chartSources = [...topSources, ...(otherCount ? [{ key: "other", name: "其他父节点", mapName: `${remainingSources.length} 个父节点`, notebook: "", count: otherCount, weak: otherWeak, path: null }] : [])]
   let sourceOffset = 0
   const sourceGradient = chartSources.length ? chartSources.map((source, index) => {
     const start = sourceOffset
-    sourceOffset += source.count / Math.max(1, records.length) * 100
+    sourceOffset += source.count / Math.max(1, parentInsights.classifiedRecords) * 100
     return `${sourceColors[index]} ${start}% ${sourceOffset}%`
   }).join(",") : "#e9edf5 0 100%"
   const mastery = records.length ? Math.round(mastered / records.length * 100) : 0
   const cards = [
-    ["total", "错题总数", records.length, `${sources.length} 棵题目脑图`],
+    ["total", "错题总数", records.length, `${mindMaps.length} 棵题目脑图`],
     ["due", "今日到期", due, due ? "建议优先复习" : "当前已清空"],
     ["weak", "薄弱错题", weak, "错题0–1级"],
     ["mastered", "已迁移", mastered, "错题5级"],
     ["added", "近 7 天新增", recentCount, "持续积累"],
   ]
+  const coverageText = parentInsights.unclassifiedRecords
+    ? `有效分类 ${parentInsights.classifiedRecords}/${parentInsights.selectedRecords} 道 · ${parentInsights.unclassifiedRecords} 道父节点结构不足`
+    : `有效分类 ${parentInsights.classifiedRecords}/${parentInsights.selectedRecords} 道`
   return <section className="overviewPage">
     <div className="overviewHero"><div><span className="overviewKicker">学习概览</span><strong>错题本学习进度</strong><small>{due ? `有 ${due} 道错题已经到期，建议从薄弱状态开始复习` : "当前没有到期任务"}</small></div><div className="masteryRing" style={{ "--progress": `${mastery * 3.6}deg` }}><span><strong>{mastery}%</strong><small>已迁移</small></span></div></div>
     <div className="overviewCards">{cards.map(([icon, label, value, note], index) => <div className={`overviewCard tone${index}`} key={label}><i><Icon name={icon} /></i><span><small>{label}</small><strong>{value}</strong><em>{note}</em></span></div>)}</div>
-    <div className="overviewPanel sourcePanel"><header><div><strong>错题来源分布</strong><small>按题目脑图根节点统计，每道错题只计入一个来源</small></div><b>{sources.length} 棵题目脑图</b></header>{sources.length ? <div className="sourceChart"><div className="sourceDonut" style={{ background: `conic-gradient(${sourceGradient})` }}><span><strong>{records.length}</strong><small>全部错题</small></span></div><div className="sourceBars">{chartSources.map((source, index) => {
-      const percent = Math.round(source.count / Math.max(1, records.length) * 100)
-      return <button key={source.key} disabled={!source.path} onClick={() => source.path && onSource(source.path)}><i style={{ background: sourceColors[index] }} /><span><strong>{source.name}</strong><small>{source.notebook}{source.weak ? ` · ${source.weak} 道薄弱` : ""}</small><em><b style={{ width: `${percent}%`, background: sourceColors[index] }} /></em></span><b>{source.count}<small>{percent}%</small></b></button>
-    })}</div></div> : <Empty title="暂无来源数据" text="标记错题后会按题目脑图根节点统计。" />}</div>
+    <div className="overviewPanel sourcePanel"><header><div><strong>错题来源分布</strong><small>按所选脑图内错题父节点自适应聚合，自动避开“一题一类”和“全部一类”</small></div>{mindMaps.length ? <MindMapMultiSelect options={mindMaps} selectedKeys={effectiveMapKeys} setSelectedKeys={setSelectedMapKeys} /> : null}</header>{sources.length ? <><div className="sourceCoverageNote">{coverageText}</div><div className="sourceChart"><div className="sourceDonut" style={{ background: `conic-gradient(${sourceGradient})` }}><span><strong>{parentInsights.classifiedRecords}</strong><small>有效分类</small></span></div><div className="sourceBars">{chartSources.map((source, index) => {
+      const percent = Math.round(source.count / Math.max(1, parentInsights.classifiedRecords) * 100)
+      return <button key={source.key} disabled={!source.path?.length} onClick={() => source.path?.length && onSource(source.path)}><i style={{ background: sourceColors[index] }} /><span><strong>{source.name}</strong><small>{source.mapName}{source.weak ? ` · ${source.weak} 道薄弱` : ""}</small><em><b style={{ width: `${percent}%`, background: sourceColors[index] }} /></em></span><b>{source.count}<small>{percent}%</small></b></button>
+    })}</div></div></> : mindMaps.length ? <Empty title="暂无有效父节点分类" text="所选脑图的父节点当前会形成“一题一类”或“全部一类”，已自动跳过无效统计。" icon={false} /> : <Empty title="暂无来源数据" text="标记错题后可按题目脑图内父节点统计。" />}</div>
     <div className="overviewGrid">
       <div className="overviewPanel"><header><strong>错题分类分布</strong><small>错题0级最薄弱，错题5级为已迁移</small></header><div className="levelChart">{levelCounts.map((count, level) => <div className="levelRow" key={level}><span>{level}级</span><div><i className={`levelBar level${level}`} style={{ width: `${Math.max(count ? 8 : 0, count / maxLevelCount * 100)}%` }} /></div><b>{count}</b></div>)}</div></div>
       <div className="overviewPanel recentPanel"><header><strong>最近添加</strong><button onClick={onBrowse}>浏览全部</button></header><div>{recent.map(item => <button className="recentItem" key={item.recordId} onClick={() => onOpen(item.recordId)}><span className={`level level${item.level}`}>{item.level}级</span><span><strong>{item.sourceTitle}</strong><small>{formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small></span><b><Icon name="right" /></b></button>)}{!recent.length && <Empty title="还没有错题" text="从卡片侧边标记第一道错题。" />}</div></div>
@@ -451,7 +513,7 @@ function DueReviewList({ records, action }) {
   return <section className="reviewPage">
     <header className="sectionIntro"><h1>到期复习</h1><p>{records.length ? "先独立作答，再核对答案并更新掌握等级。" : "当前复习任务已经完成。"}</p></header>
     <div className="reviewList">
-    {!records.length ? <Empty title="目前没有到期错题" text="新的复习任务会按掌握状态自动出现。" /> : <>
+    {!records.length ? <Empty title="目前没有到期错题" text="新的复习任务会按掌握状态自动出现。" icon={false} /> : <>
     <div className="reviewIntro"><strong>待复习 {records.length} 道</strong><small>完成标记后将按当前等级安排下一次复习。</small></div>
     {records.map(item => {
       const expanded = answerDetail?.record?.recordId === item.recordId
@@ -482,43 +544,180 @@ function DueReviewList({ records, action }) {
 function MistakeDetail({ detail, customCategories, action, reloadDetail, onRemoved }) {
   const [view, setView] = useState("question")
   const [answerIndex, setAnswerIndex] = useState(0)
-  const [category, setCategory] = useState(detail.record.manualCategory || "")
+  const [tags, setTags] = useState([])
+  const [tagPickerOpen, setTagPickerOpen] = useState(false)
+  const [newTag, setNewTag] = useState("")
+  const [collapsed, setCollapsed] = useState(false)
   const [removeArmed, setRemoveArmed] = useState(false)
-  useEffect(() => { setCategory(detail.record.manualCategory || ""); setView("question"); setAnswerIndex(0); setRemoveArmed(false) }, [detail.record.recordId])
+  const [deleteTagTarget, setDeleteTagTarget] = useState("")
+  const tagPickerRef = useRef(null)
+  const detailTagSignature = (detail.record.manualCategories || (detail.record.manualCategory ? [detail.record.manualCategory] : [])).join("\u001f")
+  useEffect(() => {
+    setTags(detail.record.manualCategories || (detail.record.manualCategory ? [detail.record.manualCategory] : []))
+  }, [detail.record.recordId, detailTagSignature])
+  useEffect(() => {
+    setView("question")
+    setAnswerIndex(0)
+    setTagPickerOpen(false)
+    setNewTag("")
+    setCollapsed(false)
+    setRemoveArmed(false)
+    setDeleteTagTarget("")
+  }, [detail.record.recordId])
+  useEffect(() => {
+    if (!tagPickerOpen) return undefined
+    const close = event => {
+      if (!tagPickerRef.current?.contains(event.target)) setTagPickerOpen(false)
+    }
+    document.addEventListener("pointerdown", close, true)
+    return () => document.removeEventListener("pointerdown", close, true)
+  }, [tagPickerOpen])
   const answer = detail.answers?.[Math.min(answerIndex, Math.max(0, detail.answers.length - 1))]
   const reviewStatus = reviewCountdown(detail.record.nextReviewAt).replace(/^下次复习/, "")
-  async function saveCategory() {
-    await action("setMistakeCategory", { recordId: detail.record.recordId, category })
+  async function applyTags(next) {
+    setTags(next)
+    await action("setMistakeCategory", { recordId: detail.record.recordId, categories: next })
     await reloadDetail()
+  }
+  function toggleTag(tag) {
+    applyTags(tags.includes(tag) ? tags.filter(item => item !== tag) : [...tags, tag])
+  }
+  function createTag() {
+    const clean = newTag.replace(/[\n\r#]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40)
+    if (!clean) return
+    setNewTag("")
+    applyTags(tags.includes(clean) ? tags : [...tags, clean])
+  }
+  async function confirmDeleteTag() {
+    if (!deleteTagTarget) return
+    const result = await action("deleteMistakeTag", { tag: deleteTagTarget })
+    if (!result) return
+    setTags(current => current.filter(item => item !== deleteTagTarget))
+    setDeleteTagTarget("")
+    await reloadDetail()
+  }
+  async function updateLevel(event) {
+    await action("reviewMistake", { recordId: detail.record.recordId, level: Number(event.target.value) })
+    await reloadDetail()
+  }
+  function wirePreviewFrame(event) {
+    try {
+      const frame = event.currentTarget
+      const frameDocument = frame.contentDocument
+      if (!frameDocument) return
+      if (!frameDocument.__mnPinchZoomBound) {
+        frameDocument.__mnPinchZoomBound = true
+        const frameWindow = frame.contentWindow
+        const card = frameDocument.querySelector(".card") || frameDocument.body.firstElementChild
+        if (!frameWindow || !card) return
+
+        const baseWidth = Math.max(1, Math.ceil(card.getBoundingClientRect().width))
+        const baseHeight = Math.max(1, Math.ceil(card.scrollHeight))
+        let scale = 1
+        let startScale = 1
+        let startDistance = 0
+        let focusX = 0
+        let focusY = 0
+
+        card.style.width = `${baseWidth}px`
+        card.style.maxWidth = "none"
+        card.style.transformOrigin = "0 0"
+        card.style.willChange = "transform"
+        frameDocument.documentElement.style.overflow = "auto"
+        frameDocument.body.style.overflow = "visible"
+
+        const distance = touches => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY)
+        const midpoint = touches => ({
+          x: (touches[0].clientX + touches[1].clientX) / 2,
+          y: (touches[0].clientY + touches[1].clientY) / 2
+        })
+        const rememberFocus = point => {
+          focusX = (frameWindow.scrollX + point.x) / scale
+          focusY = (frameWindow.scrollY + point.y) / scale
+        }
+        const applyScale = (value, point) => {
+          const nextScale = Math.max(1, Math.min(3, value))
+          scale = nextScale
+          card.style.transform = `scale(${scale})`
+          frameDocument.body.style.width = `${Math.ceil(baseWidth * scale)}px`
+          frameDocument.body.style.height = `${Math.ceil(baseHeight * scale)}px`
+          frame.dataset.previewScale = scale.toFixed(2)
+          if (point) {
+            frameWindow.scrollTo(
+              Math.max(0, focusX * scale - point.x),
+              Math.max(0, focusY * scale - point.y)
+            )
+          }
+        }
+
+        frameDocument.addEventListener("touchstart", gesture => {
+          if (gesture.touches.length !== 2) return
+          const point = midpoint(gesture.touches)
+          startDistance = distance(gesture.touches)
+          startScale = scale
+          rememberFocus(point)
+        }, { passive: true })
+        frameDocument.addEventListener("touchmove", gesture => {
+          if (gesture.touches.length !== 2 || !startDistance) return
+          gesture.preventDefault()
+          const point = midpoint(gesture.touches)
+          applyScale(startScale * distance(gesture.touches) / startDistance, point)
+        }, { passive: false })
+        frameDocument.addEventListener("touchend", gesture => {
+          if (gesture.touches.length < 2) startDistance = 0
+        }, { passive: true })
+        frameDocument.addEventListener("gesturestart", gesture => {
+          const point = { x: Number(gesture.clientX || frame.clientWidth / 2), y: Number(gesture.clientY || frame.clientHeight / 2) }
+          startScale = scale
+          rememberFocus(point)
+          gesture.preventDefault()
+        }, { passive: false })
+        frameDocument.addEventListener("gesturechange", gesture => {
+          const point = { x: Number(gesture.clientX || frame.clientWidth / 2), y: Number(gesture.clientY || frame.clientHeight / 2) }
+          gesture.preventDefault()
+          applyScale(startScale * Number(gesture.scale || 1), point)
+        }, { passive: false })
+        applyScale(1)
+      }
+      if (frameDocument && !frameDocument.__mnTagDismissBound) {
+        frameDocument.__mnTagDismissBound = true
+        frameDocument.addEventListener("pointerdown", () => setTagPickerOpen(false), true)
+      }
+    } catch {}
   }
   async function remove() {
     if (!removeArmed) return setRemoveArmed(true)
     const result = await action("removeMistake", { recordId: detail.record.recordId })
     if (result?.removed) onRemoved()
   }
-  return <div className="detail">
+  return <div className={`detail ${collapsed ? "preview-collapsed" : ""}`}>
     <div className="detailHeader"><div>
-      <div className="preview-detail-source-row"><small>{detail.record.sourceNotebookTitle}</small><span className="preview-detail-source-path">{(detail.record.sourcePathTitles || []).join(" › ") || "脑图根节点"}</span></div>
-      <div className="preview-detail-title-row"><h2>{detail.record.sourceTitle}</h2><span className="preview-detail-badges"><span className={`preview-level-badge preview-level-${detail.record.level}`}>{detail.record.level}级</span><span className={`preview-due-badge ${reviewStatus === "已到期" ? "is-due" : ""}`}>{reviewStatus}</span></span><button onClick={() => action("openSource", { recordId: detail.record.recordId }, false)}><TargetIcon /><span>定位原题</span></button></div>
-      <div className="preview-detail-meta">添加于 {formatDate(detail.record.createdAt)} · {reviewStatus}</div>
-    </div></div>
-    <div className="detailTabs"><button className={view === "question" ? "active" : ""} onClick={() => setView("question")}>完整原题</button><button className={view === "answer" ? "active" : ""} onClick={() => setView("answer")}>对应答案 {detail.answers?.length ? `(${detail.answers.length})` : ""}</button>{view === "answer" && detail.answers?.length > 1 && <select value={answerIndex} onChange={event => setAnswerIndex(Number(event.target.value))}>{detail.answers.map((item, index) => <option key={item.id} value={index}>{item.title} · {item.path}</option>)}</select>}</div>
-    <div className="cardFrame">{view === "question" ? <iframe title="错题原题" srcDoc={detail.questionHtml} /> : answer ? <iframe title="错题答案" srcDoc={answer.html} /> : <Empty title={detail.answerStatus === "unbound" ? "尚未绑定答案脑图" : detail.answerStatus === "index-missing" ? "答案索引尚未建立" : "没有匹配答案"} text="可从经典菜单绑定答案脑图或刷新答案索引。" />}</div>
-    <div className="detailControls">
-      <select value={detail.record.level} onChange={async event => { await action("reviewMistake", { recordId: detail.record.recordId, level: Number(event.target.value) }); await reloadDetail() }}>{levelNames.map((name, index) => <option key={name} value={index}>{index}级-{name}</option>)}</select>
-      <div className="customCategoryEditor">
-        <input value={category} onChange={event => setCategory(event.target.value)} placeholder="输入自定义分类（可留空）" />
-        <select value="" aria-label="选择自定义分类" onChange={event => event.target.value && setCategory(event.target.value)}>
-          <option value="" disabled hidden></option>
-          {(customCategories || []).map(item => <option value={item} key={item}>{item}</option>)}
-        </select>
-      </div><button onClick={saveCategory}>保存分类</button><button className="danger" onClick={remove}>{removeArmed ? "再次确认" : "取消错题"}</button>
+      {!collapsed && <div className="preview-detail-source-row"><small className="preview-studyset-name">{detail.record.sourceNotebookTitle}</small><span className="preview-detail-source-path">{(detail.record.sourcePathTitles || []).join(" › ") || "脑图根节点"}</span></div>}
+      <div className="preview-detail-title-row"><h2>{detail.record.sourceTitle}</h2><button className="preview-locate-button" onClick={() => action("openSource", { recordId: detail.record.recordId }, false)}><TargetIcon /><span>定位原题</span></button><button className="detailCollapseToggle" title={collapsed ? "展开题目信息" : "折叠题目信息"} aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)}><Icon name={collapsed ? "down" : "up"} /></button></div>
+      {!collapsed && <div className="preview-detail-meta"><span>添加于 {formatDate(detail.record.createdAt)}</span><span className={`preview-due-badge ${reviewStatus === "已到期" ? "is-due" : ""}`}>{reviewStatus}</span></div>}
     </div>
+
+    </div>
+    <div className="detailTabs">
+      <button className={view === "question" ? "active" : ""} onClick={() => { setView("question"); setTagPickerOpen(false) }}>完整原题</button>
+      <button className={view === "answer" ? "active" : ""} onClick={() => { setView("answer"); setTagPickerOpen(false) }}>对应答案 {detail.answers?.length ? `(${detail.answers.length})` : ""}</button>
+      {view === "answer" && detail.answers?.length > 1 && <select className="answerVariantSelect" value={answerIndex} onChange={event => setAnswerIndex(Number(event.target.value))}>{detail.answers.map((item, index) => <option key={item.id} value={index}>{item.title} · {item.path}</option>)}</select>}
+      <div className="detailTabRightGroup detailTabAux">
+        <select className={`previewLevelSelect preview-level-${detail.record.level}`} value={detail.record.level} onChange={updateLevel}>{levelNames.map((name, index) => <option key={name} value={index}>{index}级</option>)}</select>
+        <div ref={tagPickerRef} className={`detailTagPicker ${tagPickerOpen ? "open" : ""}`}>
+          <button type="button" className="detailTagTrigger" onClick={() => setTagPickerOpen(value => !value)} title={tags.length ? tags.map(tag => `#${tag}`).join(" ") : "添加自定义标签"}><span>{tags.length ? tags.map(tag => `#${tag}`).join(" ") : "+ 标签"}</span><Icon name={tagPickerOpen ? "up" : "down"} /></button>
+          {tagPickerOpen && <div className="detailCategoryMenu"><strong>自定义标签</strong><div className="detailCategoryOptions">{(customCategories || []).length ? (customCategories || []).map(tag => <div className="detailTagOptionRow" key={tag}><button type="button" role="checkbox" aria-checked={tags.includes(tag)} data-tag={tag} className={`detailTagOption ${tags.includes(tag) ? "checked" : ""}`} onClick={() => toggleTag(tag)}><i className="detailTagCheck" aria-hidden="true">{tags.includes(tag) ? "✓" : ""}</i><span>#{tag}</span></button><button type="button" className="detailTagDelete" title={`删除标签 #${tag}`} aria-label={`删除标签 ${tag}`} onClick={event => { event.stopPropagation(); setDeleteTagTarget(tag) }}><Icon name="trash" /></button></div>) : <small>暂无标签</small>}</div><div className="detailCategoryCreate"><input value={newTag} onChange={event => setNewTag(event.target.value)} onKeyDown={event => { if (event.key === "Enter") createTag() }} placeholder="新建标签" /><button type="button" onClick={createTag} disabled={!newTag.trim()}>新建</button></div></div>}
+        </div>
+        <button className={`detailRemoveMistake ${removeArmed ? "confirming" : ""}`} onClick={remove}>{removeArmed ? "再次确认" : "取消错题"}</button>
+      </div>
+    </div>
+    <div className="cardFrame">{view === "question" ? <iframe key={`${detail.record.recordId}:question`} title="错题原题" srcDoc={detail.questionHtml} onLoad={wirePreviewFrame} /> : answer ? <iframe key={`${detail.record.recordId}:answer:${answer.id || answerIndex}`} title="错题答案" srcDoc={answer.html} onLoad={wirePreviewFrame} /> : <Empty title={detail.answerStatus === "unbound" ? "尚未绑定答案脑图" : detail.answerStatus === "index-missing" ? "答案索引尚未建立" : "没有匹配答案"} text="可从经典菜单绑定答案脑图或刷新答案索引。" />}</div>
+    {deleteTagTarget && <div className="tagDeleteConfirmOverlay" role="presentation" onClick={event => event.target === event.currentTarget && setDeleteTagTarget("")}><div className="tagDeleteConfirm" role="dialog" aria-modal="true" aria-labelledby="tag-delete-title"><h3 id="tag-delete-title">删除标签</h3><p>确定删除 <strong>#{deleteTagTarget}</strong> 吗？该标签会从所有错题卡片中移除。</p><div><button type="button" onClick={() => setDeleteTagTarget("")}>取消</button><button type="button" className="danger" onClick={confirmDeleteTag}>删除</button></div></div></div>}
   </div>
 }
 
-function Empty({ title, text }) {
-  return <div className="emptyState"><span><Icon name="search" /></span><strong>{title}</strong><small>{text}</small></div>
+function Empty({ title, text, icon = true }) {
+  return <div className="emptyState">{icon && <span><Icon name="search" /></span>}<strong>{title}</strong><small>{text}</small></div>
 }
 
 function SettingsGroup({ title, items }) {
@@ -619,14 +818,79 @@ function MistakeLevelGuide({ reviewCurves, action }) {
   </section>
 }
 
+function ExportCustomPicker({ records, selectedIds, setSelectedIds }) {
+  const [previewId, setPreviewId] = useState("")
+  const [preview, setPreview] = useState(null)
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
+  const signature = records.map(item => item.recordId).join("\u001f")
+
+  useEffect(() => {
+    if (!records.length) {
+      setPreviewId("")
+      setPreview(null)
+      return
+    }
+    if (!records.some(item => item.recordId === previewId)) setPreviewId(records[0].recordId)
+  }, [signature, previewId])
+
+  useEffect(() => {
+    if (!previewId) return undefined
+    let cancelled = false
+    MNBridge.send("mistakeDetail", { recordId: previewId })
+      .then(next => { if (!cancelled) setPreview(next) })
+      .catch(() => { if (!cancelled) setPreview(null) })
+    return () => { cancelled = true }
+  }, [previewId])
+
+  function toggle(recordId) {
+    setSelectedIds(current => current.includes(recordId)
+      ? current.filter(id => id !== recordId)
+      : [...current, recordId])
+  }
+
+  return <div className="exportCustomPicker">
+    <div className="exportPickList"><header><strong>自选题目</strong><span>{selectedIds.length}/{records.length}</span></header><div className="exportPickActions"><button type="button" onClick={() => setSelectedIds(records.map(item => item.recordId))}>全选</button><button type="button" onClick={() => setSelectedIds([])}>清空</button></div><div className="exportPickRows">
+      {records.map(item => <div className={`exportPickRow ${previewId === item.recordId ? "active" : ""}`} key={item.recordId} onClick={() => setPreviewId(item.recordId)}><input type="checkbox" checked={selectedSet.has(item.recordId)} onClick={event => event.stopPropagation()} onChange={() => toggle(item.recordId)} /><span><strong>{item.sourceTitle}</strong><small>{item.sourceNotebookTitle} · 错题{item.level}级</small></span></div>)}
+      {!records.length && <small className="exportPickEmpty">当前筛选范围没有错题</small>}
+    </div></div>
+    <div className="exportPickPreview"><header><strong>题目预览</strong>{preview?.record && <small>{preview.record.sourceTitle}</small>}</header>{preview ? <iframe title="自选题目预览" srcDoc={preview.questionHtml} /> : <Empty title="选择一道题目" text="左侧勾选导出题目，点击条目可在这里预览原题。" icon={false} />}</div>
+  </div>
+}
+
 function MistakeExport({ allRecords, filteredRecords, action, onBack }) {
   const [format, setFormat] = useState("pdf")
   const [scope, setScope] = useState("all")
   const [filename, setFilename] = useState(`MN4错题导出-${new Date().toISOString().slice(0, 10)}`)
-  const [include, setInclude] = useState({ question: true, answer: true, source: true, review: true })
+  const [include, setInclude] = useState({ question: true, answer: true, source: true, review: false })
   const [result, setResult] = useState("")
+  const [answerLayout, setAnswerLayout] = useState("interleaved")
+  const [exportLevel, setExportLevel] = useState("all")
+  const [selectedMapKeys, setSelectedMapKeys] = useState([])
+  const [customIds, setCustomIds] = useState([])
   const dueRecords = useMemo(() => allRecords.filter(item => item.noteAvailable && new Date(item.nextReviewAt).getTime() <= Date.now()), [allRecords])
-  const selected = scope === "due" ? dueRecords : scope === "filtered" ? filteredRecords : allRecords
+  const mindMaps = useMemo(() => buildMindMapOptions(allRecords), [allRecords])
+  const mindMapSignature = mindMaps.map(map => map.key).join("\u001f")
+  useEffect(() => {
+    const available = mindMaps.map(map => map.key)
+    setSelectedMapKeys(current => {
+      const kept = current.filter(key => available.includes(key))
+      return kept.length ? kept : available
+    })
+  }, [mindMapSignature])
+  const effectiveMapKeys = selectedMapKeys.length ? selectedMapKeys : mindMaps.map(map => map.key)
+  const effectiveMapSet = useMemo(() => new Set(effectiveMapKeys), [effectiveMapKeys.join("\u001f")])
+  const scopeBase = scope === "due" ? dueRecords : scope === "filtered" ? filteredRecords : allRecords
+  const exportCandidates = useMemo(() => scopeBase.filter(item =>
+    (exportLevel === "all" || item.level === Number(exportLevel)) &&
+    (!mindMaps.length || effectiveMapSet.has(sourceInsightKey(item)))
+  ), [scopeBase, exportLevel, mindMapSignature, effectiveMapKeys.join("\u001f")])
+  const candidateSignature = exportCandidates.map(item => item.recordId).join("\u001f")
+  useEffect(() => {
+    const available = new Set(exportCandidates.map(item => item.recordId))
+    setCustomIds(current => current.filter(id => available.has(id)))
+  }, [candidateSignature])
+  const customIdSet = useMemo(() => new Set(customIds), [customIds])
+  const selected = scope === "custom" ? exportCandidates.filter(item => customIdSet.has(item.recordId)) : exportCandidates
   const toggle = key => setInclude(current => ({ ...current, [key]: !current[key] }))
 
   async function runExport() {
@@ -635,20 +899,24 @@ function MistakeExport({ allRecords, filteredRecords, action, onBack }) {
       format,
       filename,
       recordIds: selected.map(item => item.recordId),
+      answerLayout,
       include
     }, false)
-    if (response?.pdfGenerated) setResult(`PDF 已在本地生成，共 ${response.pages} 页；已打开保存面板（${response.count} 道）`)
+    if (response?.pdfGenerated) setResult(`PDF 已生成，共 ${response.pages} 页；已打开系统保存面板（${response.count} 道）`)
     else if (response?.saved) setResult(`已打开系统另存面板：${response.filename}（${response.count} 道）`)
-    else if (response?.printInvoked) setResult(`系统打印已调用；请在面板中选择打印或另存为 PDF（${response.count} 道）`)
-    else if (response?.htmlFallback) setResult(`当前 MarginNote 未提供打印接口，已打开自包含 HTML 保存面板；可用浏览器打开后打印为 PDF（${response.count} 道）`)
-    else if (response?.printCompleted) setResult(`系统已完成打印或另存操作（${response.count} 道）`)
-    else if (response?.printCancelled) setResult("已取消打印/另存为 PDF")
-    else if (response?.printDismissed) setResult("系统打印面板已关闭")
   }
+
+  const previewRecords = selected.slice(0, 3)
+  const previewQuestion = (item, index) => <article className="previewQuestion" key={`q-${item.recordId}`}><header><b>{index + 1}.</b><h2>{item.sourceTitle}</h2></header>{include.source && <em>来源：{item.sourceNotebookTitle}{(item.sourcePathTitles || []).length ? ` › ${(item.sourcePathTitles || []).join(" › ")}` : ""}</em>}{include.question && <div className="previewCardBody">题目卡片正文（标题不重复）</div>}{format === "pdf" && <span className="previewWritingSpace" />}</article>
+  const previewAnswer = (item, index) => <article className="previewAnswer" key={`a-${item.recordId}`}><header><b>答案 {index + 1}</b><h2>{item.sourceTitle}</h2></header><div className="previewCardBody">实时匹配答案</div></article>
+  const previewItems = include.answer && answerLayout === "questions-first"
+    ? [...previewRecords.map(previewQuestion), ...previewRecords.map(previewAnswer)]
+    : previewRecords.flatMap((item, index) => [previewQuestion(item, index), ...(include.answer ? [previewAnswer(item, index)] : [])])
 
   return <section className="exportPage">
     <header className="sectionIntro"><h1>导出错题</h1><p>选择导出范围和内容，并在右侧确认文档结构。</p></header>
     <div className="exportToolbar"><button onClick={onBack}><Icon name="left" /> 返回设置</button><span>{selected.length} 道错题将被导出</span></div>
+    {scope === "custom" && <ExportCustomPicker records={exportCandidates} selectedIds={customIds} setSelectedIds={setCustomIds} />}
     <div className="exportLayout">
       <div className="exportOptions">
         <div className="exportBlock"><h2>文件格式</h2><div className="formatChoices">
@@ -659,17 +927,20 @@ function MistakeExport({ allRecords, filteredRecords, action, onBack }) {
           <option value="all">全部错题（{allRecords.length}）</option>
           <option value="filtered">当前筛选结果（{filteredRecords.length}）</option>
           <option value="due">已到期复习（{dueRecords.length}）</option>
+          <option value="custom">自定义选择题目</option>
         </select></div>
+        <div className="exportBlock"><h2>题目筛选</h2><div className="exportFilterGrid"><label><span>错题等级</span><select value={exportLevel} onChange={event => setExportLevel(event.target.value)}><option value="all">全部等级</option>{levelNames.map((name, level) => <option key={level} value={String(level)}>错题{level}级 · {name}</option>)}</select></label><label><span>学习集 / 脑图</span>{mindMaps.length ? <MindMapMultiSelect options={mindMaps} selectedKeys={effectiveMapKeys} setSelectedKeys={setSelectedMapKeys} title="筛选脑图" /> : <small>暂无脑图</small>}</label></div></div>
         <div className="exportBlock"><h2>包含内容</h2><div className="includeChoices">
-          {[["question", "完整原题"], ["answer", "实时匹配答案"], ["source", "来源与卡片 ID"], ["review", "复习记录"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={include[key]} onChange={() => toggle(key)} /><span>{label}</span></label>)}
+          {[["question", "完整原题"], ["answer", "实时匹配答案"], ["source", "来源小字"], ["review", "复习记录"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={include[key]} onChange={() => toggle(key)} /><span>{label}</span></label>)}
         </div></div>
+        {format === "pdf" && include.answer && <div className="exportBlock"><h2>题目 / 答案排布</h2><div className="answerLayoutChoices"><button type="button" className={answerLayout === "questions-first" ? "selected" : ""} onClick={() => setAnswerLayout("questions-first")}><strong>题目集中、答案集中</strong><small>题目1 → 题目2 → 答案1 → 答案2</small></button><button type="button" className={answerLayout === "interleaved" ? "selected" : ""} onClick={() => setAnswerLayout("interleaved")}><strong>题目答案交替</strong><small>题目1 → 答案1 → 题目2 → 答案2</small></button></div></div>}
         <div className="exportBlock"><h2>文件名</h2><div className="filenameInput"><input value={filename} onChange={event => setFilename(event.target.value)} /><b>{format === "md" ? ".zip" : ".pdf"}</b></div>{format === "md" && <small className="exportHint">压缩包内包含 UTF-8 Markdown 和 assets 图片目录</small>}</div>
         <button className="exportPrimary" disabled={!selected.length || !Object.values(include).some(Boolean)} onClick={runExport}><Icon name="download" /> {format === "pdf" ? "生成并另存 PDF" : "导出并另存为"}</button>
         {result && <p className="exportResult">{result}</p>}
       </div>
       <div className="exportPreview"><header><span><strong>导出预览</strong><small>{format === "pdf" ? "A4 文档" : "Markdown 文档"}</small></span><b>{selected.length} 道</b></header><div className={`previewPaper ${format}`}>
-        <h1>MN4 错题导出</h1><p>导出时间：{formatDate(new Date())}</p>
-        {selected.slice(0, 3).map((item, index) => <article key={item.recordId}><small>错题 {index + 1}</small><h2>{item.sourceTitle}</h2><p>错题{item.level}级 · {levelNames[item.level]}　｜　{item.categoryLabel}</p>{include.source && <em>{item.sourceNotebookTitle} › {(item.sourcePathTitles || []).join(" › ")}</em>}{include.question && <div>完整原题卡片（含摘录、图片、评论和手写）</div>}{include.answer && <div>从原答案脑图实时匹配的完整答案</div>}</article>)}
+        <p className="previewMeta">{format === "pdf" ? "A4 · 每题预留书写空白" : "Markdown"} · {formatDate(new Date())}</p>
+        {previewItems}
         {selected.length > 3 && <p className="previewMore">其余 {selected.length - 3} 道错题…</p>}
       </div></div>
     </div>

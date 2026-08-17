@@ -167,7 +167,7 @@ export function renderCardHtml(
     .join("")
 
   return `<!doctype html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 :root{color-scheme:light dark}*{box-sizing:border-box}html,body{margin:0;padding:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#202124}body{padding:0}.card{min-height:100vh;background:#fff;padding:54px 22px 34px}.eyebrow{font-size:12px;color:#6b7280;margin-bottom:6px}.card h1{font-size:22px;line-height:1.35;margin:0 44px 18px 0}.text-block,.html-block{font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin:12px 0;padding:12px 14px;background:#f5f7fb;border-radius:9px}.html-block{white-space:normal}figure{margin:14px 0;text-align:center}img,canvas[data-drawing]{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}canvas[data-drawing]{width:100%;background:#fff}.paint-note{position:relative;display:block}.paint-note img{width:100%;height:auto}.paint-note canvas[data-drawing]{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;pointer-events:none}.missing-image{padding:28px;text-align:center;color:#9b1c1c;background:#fff1f1;border-radius:8px}.child{margin-top:20px;padding-top:16px;border-top:1px solid #d9dde7}.child h2{font-size:17px;margin:0 0 10px}
 @media(prefers-color-scheme:dark){html,body{color:#f3f4f6}.card{background:#202124}.text-block,.html-block{background:#303236}.eyebrow{color:#aeb4bf}.child{border-color:#45484f}}

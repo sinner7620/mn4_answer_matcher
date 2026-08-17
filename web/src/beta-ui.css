@@ -137,17 +137,18 @@ select:focus-visible {
 .detailHeader > div { width: 100%; min-width: 0; flex: 1 1 auto; }
 .detailControls {
   order: 2;
-  grid-template-columns: minmax(150px, 210px) minmax(230px, 1fr) auto auto !important;
+  grid-template-columns: minmax(150px, 210px) minmax(230px, 1fr) auto !important;
   gap: 14px !important;
   padding: 0 20px 6px !important;
   border-bottom: 0;
 }
 .detailControls > select,
-.detailControls .customCategoryEditor,
-.detailControls .customCategoryEditor > input,
-.detailControls .customCategoryEditor > select,
+.detailControls .detailTagPicker,
+.detailControls .detailTagPicker .detailTagTrigger,
 .detailControls > button { min-height: 40px !important; font-size: 13px !important; }
 .detailControls > button { padding-inline: 15px !important; }
+.detailTagPicker .detailTagTrigger { max-width: 280px !important; }
+.detailCategoryMenu { width: 240px !important; min-width: 240px !important; }
 .detailTabs {
   order: 3;
   gap: 8px !important;
@@ -329,7 +330,7 @@ select:focus-visible {
   .dueReviewItem { grid-template-columns: 1fr; gap: 8px; }
   .dueReviewActions { justify-content: flex-start; overflow-x: auto; }
   .settingsColumns { grid-template-columns: 1fr !important; }
-  .detailControls { grid-template-columns: minmax(110px, 150px) minmax(140px, 1fr) auto auto !important; gap: 6px !important; padding-left: 10px !important; padding-right: 10px !important; }
+  .detailControls { grid-template-columns: minmax(110px, 150px) minmax(140px, 1fr) auto !important; gap: 6px !important; padding-left: 10px !important; padding-right: 10px !important; }
   .detailHeader, .detailTabs { padding-left: 10px !important; padding-right: 10px !important; }
 }
 

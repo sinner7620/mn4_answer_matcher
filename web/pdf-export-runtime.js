@@ -124,7 +124,8 @@
   }
 
   function renderNodeToPdf(pdf, node, state) {
-    var scale = Math.max(1, Math.min(1.5, Number(window.devicePixelRatio) || 1));
+    var pixelRatio = Number(window.devicePixelRatio) || 1;
+    var scale = Math.max(2.5, Math.min(3, pixelRatio * 1.5));
     return window.html2canvas(node, {
       scale: scale,
       backgroundColor: "#ffffff",
@@ -152,7 +153,7 @@
         context.fillRect(0, 0, slice.width, slice.height);
         context.drawImage(canvas, 0, y, canvas.width, height, 0, 0, canvas.width, height);
         var renderedHeight = drawWidth * height / canvas.width;
-        pdf.addImage(slice.toDataURL("image/jpeg", 0.86), "JPEG", margin, margin, drawWidth, renderedHeight, undefined, "FAST");
+        pdf.addImage(slice.toDataURL("image/jpeg", 0.97), "JPEG", margin, margin, drawWidth, renderedHeight, undefined, "SLOW");
         state.pages += 1;
         slice.width = 1;
         slice.height = 1;
@@ -167,7 +168,7 @@
     if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") throw new Error("jsPDF 未加载");
     var nodes = Array.prototype.slice.call(document.querySelectorAll(".cover, .mistake"));
     if (!nodes.length) nodes = [document.body];
-    var pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "pt", format: "a4", compress: true });
+    var pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "pt", format: "a4", compress: true, precision: 16 });
     var state = { pages: 0 };
     var chain = Promise.resolve();
     nodes.forEach(function (node) {
@@ -198,8 +199,8 @@
     return true;
   };
 
-  window.__MN_PDF_EXPORT_PROTOCOL_V3__ = true;
-  window.__MN_PDF_EXPORT_BEGIN__ = function () {
+  window.__MN_PDF_FILE_FALLBACK__ = true;
+  window.__MN_PDF_FILE_FALLBACK_BEGIN__ = function () {
     if (started) return;
     started = true;
     Promise.all([waitForFonts(), waitForImages()])

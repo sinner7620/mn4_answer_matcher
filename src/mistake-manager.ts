@@ -14,6 +14,7 @@ import {
   isDue,
   isMistakeLevel,
   LEVEL_DESCRIPTIONS,
+  manualTagsOf,
   MistakeLevel,
   MistakeReviewCurves,
   MistakeRecord,
@@ -29,7 +30,13 @@ import {
   upsertMistakeRecord
 } from "./mistake-store"
 import { openNoteInMindMap } from "./note-navigation"
-import { cleanMistakeCategoryTag, mistakeSourceTags, withoutMistakeSourceTags } from "./mistake-tags"
+import {
+  cleanMistakeTags,
+  customMistakeTagsFromSource,
+  mistakeSourceTags,
+  mistakeStateFromSourceTags,
+  withoutMistakeSourceTags
+} from "./mistake-tags"
 
 const LAST_REMINDER_KEY = "marginnote.extension.mn4-answer-matcher.mistake-reminder.v2"
 const REMINDER_THROTTLE = 6 * 60 * 60 * 1000
@@ -57,11 +64,11 @@ function answerBinding(sourceNotebookId: string, sourceRootNodeId: string): Bind
   return target && targetForMode(target, scoped)
 }
 
-function applySourceTags(record: MistakeRecord, previousCategory?: string): void {
+function applySourceTags(record: MistakeRecord, previousCategories?: string[]): void {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) return
   const node = new NodeNote(note, record.sourceNotebookId)
-  node.tags = mistakeSourceTags(node.tags, record.level, record.manualCategory, previousCategory)
+  node.tags = mistakeSourceTags(node.tags, record.level, manualTagsOf(record), previousCategories)
   node.tidyupTags()
 }
 
@@ -69,13 +76,24 @@ function removeSourceTags(record: MistakeRecord): void {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) return
   const node = new NodeNote(note, record.sourceNotebookId)
-  node.tags = withoutMistakeSourceTags(node.tags, record.manualCategory)
+  node.tags = withoutMistakeSourceTags(node.tags, manualTagsOf(record))
   node.tidyupTags()
 }
 
-function persistSource(notebookId: string): void {
-  MN.db.savedb()
-  MN.db.setNotebookSyncDirty(notebookId)
+function syncManualTagsFromSource(record: MistakeRecord): MistakeRecord {
+  const note = MN.db.getNoteById(record.sourceNoteId)
+  if (!note) return record
+  const sourceTags = customMistakeTagsFromSource(new NodeNote(note, record.sourceNotebookId).tags)
+  const storedTags = manualTagsOf(record)
+  if (sourceTags.length === storedTags.length && sourceTags.every((tag, index) => tag === storedTags[index])) {
+    return record
+  }
+  return {
+    ...record,
+    manualCategories: sourceTags,
+    manualCategory: sourceTags[0],
+    updatedAt: new Date().toISOString()
+  }
 }
 
 function persistSources(notebookIds: Iterable<string>): void {
@@ -83,6 +101,14 @@ function persistSources(notebookIds: Iterable<string>): void {
   if (!uniqueIds.length) return
   MN.db.savedb()
   for (const notebookId of uniqueIds) MN.db.setNotebookSyncDirty(notebookId)
+}
+
+function commitSourceTagMutation(notebookIds: Iterable<string>, mutation: () => void): void {
+  const uniqueIds = Array.from(new Set(notebookIds)).filter(Boolean)
+  undoGroupingWithRefresh(() => {
+    mutation()
+    persistSources(uniqueIds)
+  })
 }
 
 function refreshRecord(record: MistakeRecord): MistakeRecord {
@@ -106,6 +132,114 @@ function refreshRecord(record: MistakeRecord): MistakeRecord {
   }
 }
 
+export interface MistakeTagRecoveryResult {
+  scanned: number
+  found: number
+  added: number
+  existing: number
+  failed: number
+}
+
+const FULL_TAG_RECOVERY_INTERVAL = 30 * 60 * 1000
+let lastFullTagRecoveryAt = 0
+let tagRecoveryQueue: Promise<void> = Promise.resolve()
+
+async function recoverMistakesFromSourceTagsInternal(targetNotebookId?: string): Promise<MistakeTagRecoveryResult> {
+  if (!targetNotebookId && Date.now() - lastFullTagRecoveryAt < FULL_TAG_RECOVERY_INTERVAL) {
+    return { scanned: 0, found: 0, added: 0, existing: 0, failed: 0 }
+  }
+
+  const state = loadMistakeState()
+  const curves = loadMatcherSettings().mistakeReviewCurves
+  const candidates = targetNotebookId
+    ? [MN.db.getNotebookById(targetNotebookId)].filter(Boolean)
+    : (MN.db.allNotebooks() ?? []).filter(item => item.topicId && item.flags === 2)
+
+  let scanned = 0
+  let found = 0
+  let added = 0
+  let existing = 0
+  let failed = 0
+
+  for (const notebook of candidates as any[]) {
+    const sourceNotebookId = String(notebook?.topicId ?? targetNotebookId ?? "").trim()
+    if (!sourceNotebookId) continue
+    const notes = notebook?.notes ?? []
+
+    for (let index = 0; index < notes.length; index++) {
+      const note = notes[index]
+      if (!note) continue
+      scanned++
+      try {
+        const question = new NodeNote(note, sourceNotebookId)
+        const tagState = mistakeStateFromSourceTags(question.tags)
+        if (!tagState.isMistake) continue
+        found++
+
+        const sourceNoteId = noteId(note)
+        if (!sourceNoteId) continue
+        const recordId = sourceRecordKey(sourceNotebookId, sourceNoteId)
+        if (state.records[recordId]) {
+          existing++
+          continue
+        }
+
+        const sourceRoot = mindMapRoot(question)
+        const sourceRootNodeId = nodeIdentifier(sourceRoot)
+        const binding = answerBinding(sourceNotebookId, sourceRootNodeId)
+        const sourcePathTitles = pathTitles(question)
+        const manualCategories = tagState.customTags
+        const sourceNotebookTitle = notebook.title?.trim() || notebookTitle(sourceNotebookId)
+        const record = createMistakeRecord({
+          sourceNoteId,
+          sourceNotebookId,
+          sourceNotebookTitle,
+          sourceRootNodeId,
+          sourceRootTitle: sourceRoot.title?.trim() || "未命名题目脑图",
+          sourceTitle: question.title?.trim() || "未命名错题",
+          sourcePathTitles,
+          categoryPath: [sourceNotebookTitle, ...sourcePathTitles],
+          manualCategories,
+          manualCategory: manualCategories[0],
+          answerNotebookId: binding?.notebookId,
+          answerRootNodeId: binding?.rootNodeId,
+          level: tagState.level ?? 0
+        }, new Date(), curves)
+        upsertMistakeRecord(state, record)
+        added++
+      } catch (error) {
+        failed++
+        MN.error(error)
+      }
+
+      if (index % 80 === 79) await delay(0.01)
+    }
+  }
+
+  if (added) saveMistakeState(state)
+  if (!targetNotebookId) lastFullTagRecoveryAt = Date.now()
+  return { scanned, found, added, existing, failed }
+}
+
+/**
+ * 从 MarginNote 已同步的卡片标签重建缺失的错题记录。
+ * 只补充不存在的记录，不删除或覆盖已有复习历史。
+ */
+export function recoverMistakesFromSourceTags(targetNotebookId?: string): Promise<MistakeTagRecoveryResult> {
+  const task = tagRecoveryQueue.then(() => recoverMistakesFromSourceTagsInternal(targetNotebookId))
+  tagRecoveryQueue = task.then(() => undefined, () => undefined)
+  return task
+}
+
+export function scheduleMistakeTagRecovery(targetNotebookId?: string): void {
+  const wait = targetNotebookId ? 1 : 3
+  void delay(wait)
+    .then(() => recoverMistakesFromSourceTags(targetNotebookId))
+    .then(result => {
+      if (result.added > 0) showHUD(`已从 MarginNote 标签恢复 ${result.added} 道错题`, 4)
+    })
+    .catch(error => MN.error(error))
+}
 function recordById(recordId: string): MistakeRecord {
   const record = loadMistakeState().records[recordId]
   if (!record) throw new Error("错题记录不存在")
@@ -143,8 +277,8 @@ export async function markQuestionAsMistake(
     : createMistakeRecord(metadata, now, loadMatcherSettings().mistakeReviewCurves)
   upsertMistakeRecord(state, record)
   saveMistakeState(state)
-  undoGroupingWithRefresh(() => applySourceTags(record, previous?.manualCategory))
-  persistSource(sourceNotebookId)
+  commitSourceTagMutation([sourceNotebookId], () => applySourceTags(record, manualTagsOf(previous)))
+
   showHUD(previous ? "该题已在错题库中，记录已刷新" : "已标记为错题，可在错题浏览窗口中查看", 4)
   return record
 }
@@ -212,16 +346,15 @@ export async function markQuestionsAsMistakes(
 
   if (prepared.length) {
     saveMistakeState(state)
-    undoGroupingWithRefresh(() => {
+    commitSourceTagMutation([sourceNotebookId], () => {
       for (const { record, previous } of prepared) {
         try {
-          applySourceTags(record, previous?.manualCategory)
+          applySourceTags(record, manualTagsOf(previous))
         } catch (error) {
           MN.error(error)
         }
       }
     })
-    persistSource(sourceNotebookId)
   }
 
   return {
@@ -274,8 +407,7 @@ export async function reviewMistakeById(recordId: string, level: MistakeLevel): 
   )
   upsertMistakeRecord(state, record)
   saveMistakeState(state)
-  undoGroupingWithRefresh(() => applySourceTags(record))
-  persistSource(record.sourceNotebookId)
+  commitSourceTagMutation([record.sourceNotebookId], () => applySourceTags(record))
   return record
 }
 
@@ -324,37 +456,82 @@ export async function reviewMistakesByIds(
           MN.error(error)
         }
       }
+      persistSources(records.map(record => record.sourceNotebookId))
     })
-    persistSources(records.map(record => record.sourceNotebookId))
   }
   return { changed: records.length, missing, records }
 }
 
-export async function setMistakeCategoryById(recordId: string, category: string): Promise<MistakeRecord> {
+export async function setMistakeCategoryById(recordId: string, categories: string | string[]): Promise<MistakeRecord> {
   const state = loadMistakeState()
   const previous = state.records[recordId]
   if (!previous) throw new Error("错题记录不存在")
-  const manualCategory = cleanMistakeCategoryTag(category) || undefined
+  const manualCategories = cleanMistakeTags(categories)
   const record = {
     ...previous,
-    manualCategory,
+    manualCategories,
+    manualCategory: manualCategories[0],
     updatedAt: new Date().toISOString()
   }
   upsertMistakeRecord(state, record)
   saveMistakeState(state)
-  if (manualCategory || previous.manualCategory) {
+  const previousTags = manualTagsOf(previous)
+  if (manualCategories.length || previousTags.length) {
     const settings = loadMatcherSettings()
     saveMatcherSettings({
-      mistakeCustomCategories: [
+      mistakeCustomCategories: Array.from(new Set([
         ...settings.mistakeCustomCategories,
-        ...(previous.manualCategory ? [previous.manualCategory] : []),
-        ...(manualCategory ? [manualCategory] : [])
-      ]
+        ...previousTags,
+        ...manualCategories
+      ]))
     })
   }
-  undoGroupingWithRefresh(() => applySourceTags(record, previous.manualCategory))
-  persistSource(record.sourceNotebookId)
+  commitSourceTagMutation([record.sourceNotebookId], () => applySourceTags(record, previousTags))
   return record
+}
+
+export async function deleteMistakeTag(tagValue: string): Promise<{ tag: string; changed: number }> {
+  const tag = cleanMistakeTags(tagValue)[0]
+  if (!tag) throw new Error("标签不能为空")
+
+  const state = loadMistakeState()
+  const changedRecords: Array<{ previousTags: string[]; record: MistakeRecord }> = []
+  const now = new Date().toISOString()
+
+  for (const previous of Object.values(state.records)) {
+    const previousTags = manualTagsOf(previous)
+    if (!previousTags.includes(tag)) continue
+    const manualCategories = previousTags.filter(item => item !== tag)
+    const record: MistakeRecord = {
+      ...previous,
+      manualCategories,
+      manualCategory: manualCategories[0],
+      updatedAt: now
+    }
+    upsertMistakeRecord(state, record)
+    changedRecords.push({ previousTags, record })
+  }
+
+  if (changedRecords.length) saveMistakeState(state)
+
+  const settings = loadMatcherSettings()
+  saveMatcherSettings({
+    mistakeCustomCategories: settings.mistakeCustomCategories.filter(item => item !== tag)
+  })
+
+  if (changedRecords.length) {
+    commitSourceTagMutation(changedRecords.map(item => item.record.sourceNotebookId), () => {
+      for (const { previousTags, record } of changedRecords) {
+        try {
+          applySourceTags(record, previousTags)
+        } catch (error) {
+          MN.error(error)
+        }
+      }
+    })
+  }
+
+  return { tag, changed: changedRecords.length }
 }
 
 export async function removeMistakeById(recordId: string): Promise<void> {
@@ -364,8 +541,7 @@ export async function removeMistakeById(recordId: string): Promise<void> {
   removeMistakeRecord(state, recordId)
   saveMistakeState(state)
   try {
-    undoGroupingWithRefresh(() => removeSourceTags(record))
-    persistSource(record.sourceNotebookId)
+    commitSourceTagMutation([record.sourceNotebookId], () => removeSourceTags(record))
   } catch (error) {
     // The mistake record is authoritative. A stale source tag must not make
     // cancellation appear to fail or restore the removed record in the UI.
@@ -395,24 +571,29 @@ export function mistakeWorkbenchData(): MistakeWorkbenchData {
   let migratedFromLegacy = 0
   const records = Object.values(state.records).map(stored => {
     if (stored.legacyMistakeNoteId) migratedFromLegacy++
-    const automaticOptions = categoryPathPrefixes(automaticCategoryPath(stored))
-    const manualOption = stored.manualCategory
-      ? [{ key: `manual:${stored.manualCategory}`, label: `自定义 › ${stored.manualCategory}`, depth: 0 }]
-      : []
+    const synced = syncManualTagsFromSource(stored)
+    const automaticOptions = categoryPathPrefixes(automaticCategoryPath(synced))
+    const manualOptions = manualTagsOf(synced).map(tag => ({
+      key: `manual:${tag}`,
+      label: `自定义 › ${tag}`,
+      depth: 0
+    }))
     return {
-      ...stored,
+      ...synced,
       noteAvailable: Boolean(MN.db.getNoteById(stored.sourceNoteId)),
-      categoryLabel: mistakeCategoryLabel(stored),
-      categoryKeys: [...automaticOptions, ...manualOption].map(option => option.key)
+      categoryLabel: mistakeCategoryLabel(synced),
+      categoryKeys: [...automaticOptions, ...manualOptions].map(option => option.key)
     }
   }).sort(compareMistakeRecords)
   const categoryCounts = new Map<string, { key: string; name: string; depth: number; count: number }>()
   for (const record of records) {
     const options = [
       ...categoryPathPrefixes(automaticCategoryPath(record)),
-      ...(record.manualCategory
-        ? [{ key: `manual:${record.manualCategory}`, label: `自定义 › ${record.manualCategory}`, depth: 0 }]
-        : [])
+      ...manualTagsOf(record).map(tag => ({
+        key: `manual:${tag}`,
+        label: `自定义 › ${tag}`,
+        depth: 0
+      }))
     ]
     for (const option of options) {
       const previous = categoryCounts.get(option.key)
@@ -427,7 +608,7 @@ export function mistakeWorkbenchData(): MistakeWorkbenchData {
   const savedCategories = matcherSettings.mistakeCustomCategories
   const customCategories = Array.from(new Set([
     ...savedCategories,
-    ...records.map(record => record.manualCategory).filter(Boolean) as string[]
+    ...records.flatMap(record => manualTagsOf(record))
   ])).sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }))
   if (JSON.stringify(customCategories) !== JSON.stringify(savedCategories)) {
     saveMatcherSettings({ mistakeCustomCategories: customCategories })
@@ -470,8 +651,8 @@ export async function removeMistakesByIds(recordIds: unknown): Promise<BatchMist
           MN.error(error)
         }
       }
+      persistSources(records.map(record => record.sourceNotebookId))
     })
-    persistSources(records.map(record => record.sourceNotebookId))
   }
   return { changed: records.length, missing, records }
 }
@@ -506,7 +687,7 @@ export interface MistakeDetailData {
 }
 
 export function mistakeDetailById(recordId: string): MistakeDetailData {
-  const record = refreshRecord(recordById(recordId))
+  const record = syncManualTagsFromSource(refreshRecord(recordById(recordId)))
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) throw new Error("原题卡片不存在或尚未同步")
   const node = new NodeNote(note, record.sourceNotebookId)
@@ -538,7 +719,7 @@ export function mistakeDetailById(recordId: string): MistakeDetailData {
       categoryLabel: mistakeCategoryLabel(record),
       categoryKeys: [
         ...categoryPathPrefixes(automaticCategoryPath(record)).map(option => option.key),
-        ...(record.manualCategory ? [`manual:${record.manualCategory}`] : [])
+        ...manualTagsOf(record).map(tag => `manual:${tag}`)
       ]
     },
     questionHtml: questionHtml(record),

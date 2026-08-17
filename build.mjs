@@ -21,7 +21,9 @@ const archive = path.join(
   `${localBeta ? "mn4-answer-matcher-beta" : "mn4-answer-matcher"}-v${pkg.version}.mnaddon`
 )
 
-await rm(distRoot, { recursive: true, force: true })
+await mkdir(distRoot, { recursive: true })
+await rm(addonRoot, { recursive: true, force: true })
+await rm(archive, { force: true })
 await rm(webDist, { recursive: true, force: true })
 await mkdir(addonRoot, { recursive: true })
 
@@ -43,6 +45,18 @@ await esbuild({
 await viteBuild({ configFile: path.join(root, "web", "vite.config.js") })
 await writeFile(path.join(webDist, "index.html"), `<!doctype html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>答案与错题工作台</title><link rel="stylesheet" href="./app.css"></head><body><div id="root"></div><script src="./app.js"></script></body></html>\n`)
+
+await copyFile(path.join(root, "assets", "logo.png"), path.join(webDist, "logo.png"))
+
+const vendorRoot = path.join(webDist, "vendor")
+await mkdir(vendorRoot, { recursive: true })
+for (const [source, name] of [
+  [path.join(root, "node_modules", "html2canvas", "dist", "html2canvas.min.js"), "html2canvas.min.js"],
+  [path.join(root, "node_modules", "jspdf", "dist", "jspdf.umd.min.js"), "jspdf.umd.min.js"],
+  [path.join(root, "web", "pdf-export-runtime.js"), "pdf-export-runtime.js"]
+]) {
+  await copyFile(source, path.join(vendorRoot, name))
+}
 
 for (const name of ["main.js", "WebBridgeCommands.js", "WebPanelController.js", "WebAddon.js"]) {
   await copyFile(path.join(root, "rails-native", name), path.join(addonRoot, name))

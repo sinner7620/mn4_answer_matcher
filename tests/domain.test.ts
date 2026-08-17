@@ -31,13 +31,14 @@ import {
 } from "../src/regex-matching"
 import { scopeKey } from "../src/scope-key"
 import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
-import { buildSourceInsights } from "../src/source-insights"
-import { mistakeSourceTags, withoutMistakeSourceTags } from "../src/mistake-tags"
+import { buildMindMapOptions, buildParentInsights, buildSourceInsights } from "../src/source-insights"
+import { cleanMistakeTags, customMistakeTagsFromSource, mistakeSourceTags, mistakeStateFromSourceTags, withoutMistakeSourceTags } from "../src/mistake-tags"
 import {
   categoryPathPrefixes,
   createMistakeRecord,
   compareMistakeRecords,
   isDue,
+  manualTagsOf,
   mistakeCategoryLabel,
   nextReviewTime,
   reviewMistake
@@ -265,15 +266,45 @@ test("错题按来源章节和自然题号稳定排序", () => {
   assert.equal(mistakeCategoryLabel(first), "多元微分 › 基本概念题")
 })
 
-test("自定义错题分类直接作为标签并替换旧分类标签", () => {
+test("自定义标签直接作为标签并替换旧标签", () => {
   assert.deepEqual(
-    mistakeSourceTags(["重点", "错题分类·计算题", "旧分类"], 2, "新分类", "旧分类"),
-    ["重点", "错题", "错题2级", "新分类"]
+    mistakeSourceTags(["重点", "错题分类·计算题", "旧分类"], 2, ["新标签1", "新标签2"], ["旧分类"]),
+    ["重点", "错题", "错题2级", "新标签1", "新标签2"]
   )
   assert.deepEqual(
-    withoutMistakeSourceTags(["重点", "错题", "错题2级", "新分类"], "新分类"),
+    mistakeSourceTags(["重点", "错题", "错题2级", "新标签1"], 2, "新标签1", "新标签1"),
+    ["重点", "错题", "错题2级", "新标签1"]
+  )
+  assert.deepEqual(
+    withoutMistakeSourceTags(["重点", "错题", "错题2级", "新标签1", "新标签2"], ["新标签1", "新标签2"]),
     ["重点"]
   )
+  assert.deepEqual(cleanMistakeTags([" #数学 ", "数学", "物理", "", "物理"]), ["数学", "物理"])
+  assert.deepEqual(
+    customMistakeTagsFromSource(["错题", "错题2级", "重点", "MN新增标签", "错题状态·S2", "错题分类·旧版"]),
+    ["重点", "MN新增标签"]
+  )
+})
+
+test("可从 MarginNote 标签恢复错题身份、等级和自定义标签", () => {
+  assert.deepEqual(
+    mistakeStateFromSourceTags(["错题", "错题4级", "傅里叶变换", "重点"]),
+    { isMistake: true, level: 4, customTags: ["傅里叶变换", "重点"] }
+  )
+  assert.deepEqual(
+    mistakeStateFromSourceTags(["错题状态·S2", "旧版标签"]),
+    { isMistake: true, level: 2, customTags: ["旧版标签"] }
+  )
+  assert.deepEqual(
+    mistakeStateFromSourceTags(["普通标签"]),
+    { isMistake: false, level: undefined, customTags: ["普通标签"] }
+  )
+})
+
+test("标签归一化：去 #、去重、保留首标签为 manualCategory", () => {
+  assert.deepEqual(manualTagsOf({ manualCategories: ["A", "B"] }), ["A", "B"])
+  assert.deepEqual(manualTagsOf({ manualCategory: "A" }), ["A"])
+  assert.deepEqual(manualTagsOf({}), [])
 })
 
 test("错题来源分布按题目脑图根节点而不是学习集名称分组", () => {
@@ -337,6 +368,78 @@ test("同一学习集中的同名题目脑图按根节点 ID 分开显示", () =
   assert.equal(sources.length, 2)
   assert.deepEqual(sources.map(source => source.name), ["习题（1）", "习题（2）"])
   assert.notEqual(sources[0].key, sources[1].key)
+})
+
+test("错题来源可按题目脑图根节点生成多选项", () => {
+  const records = [
+    { recordId: "a1", sourceNotebookId: "book", sourceNotebookTitle: "高数", sourceRootNodeId: "root-a", sourceRootTitle: "极限题", sourcePathTitles: ["第一组", "极限题"], level: 0 },
+    { recordId: "a2", sourceNotebookId: "book", sourceNotebookTitle: "高数", sourceRootNodeId: "root-a", sourceRootTitle: "极限题", sourcePathTitles: ["第二组", "极限题"], level: 2 },
+    { recordId: "b1", sourceNotebookId: "book", sourceNotebookTitle: "高数", sourceRootNodeId: "root-b", sourceRootTitle: "导数题", sourcePathTitles: ["第一组", "导数题"], level: 1 }
+  ]
+  const options = buildMindMapOptions(records)
+  assert.deepEqual(options.map(option => [option.name, option.count]), [["极限题", 2], ["导数题", 1]])
+  assert.notEqual(options[0].key, options[1].key)
+})
+
+test("父节点统计会从一题一类自动上移到有效聚合层级", () => {
+  const records = [
+    ["r1", "题1", "极限"], ["r2", "题2", "极限"], ["r3", "题3", "极限"],
+    ["r4", "题4", "导数"], ["r5", "题5", "导数"], ["r6", "题6", "导数"]
+  ].map(([recordId, directParent, parentGroup], index) => ({
+    recordId,
+    sourceNotebookId: "book",
+    sourceNotebookTitle: "高数",
+    sourceRootNodeId: "root-a",
+    sourceRootTitle: "章节题库",
+    sourcePathTitles: [directParent, parentGroup, "章节题库"],
+    categoryPath: ["高数", directParent, parentGroup, "章节题库"],
+    level: index < 2 ? 1 : 3
+  }))
+  const result = buildParentInsights(records)
+  assert.equal(result.selectedRecords, 6)
+  assert.equal(result.classifiedRecords, 6)
+  assert.equal(result.unclassifiedRecords, 0)
+  assert.deepEqual(result.groups.map(group => [group.name, group.count]), [["导数", 3], ["极限", 3]])
+})
+
+test("父节点统计不会把全部错题强行显示成单一分类", () => {
+  const records = ["r1", "r2", "r3", "r4"].map(recordId => ({
+    recordId,
+    sourceNotebookId: "book",
+    sourceNotebookTitle: "高数",
+    sourceRootNodeId: "root-a",
+    sourceRootTitle: "章节题库",
+    sourcePathTitles: ["同一父节点", "章节题库"],
+    categoryPath: ["高数", "同一父节点", "章节题库"],
+    level: 2
+  }))
+  const result = buildParentInsights(records)
+  assert.equal(result.groups.length, 0)
+  assert.equal(result.classifiedRecords, 0)
+  assert.equal(result.unclassifiedRecords, 4)
+})
+
+test("父节点统计只计算用户选中的一个或多个脑图", () => {
+  const makeRecords = (rootNodeId: string, rootTitle: string, prefix: string) => [
+    ["a", "组A"], ["b", "组A"], ["c", "组B"], ["d", "组B"]
+  ].map(([suffix, parent], index) => ({
+    recordId: `${prefix}-${suffix}`,
+    sourceNotebookId: "book",
+    sourceNotebookTitle: "题库",
+    sourceRootNodeId: rootNodeId,
+    sourceRootTitle: rootTitle,
+    sourcePathTitles: [parent, rootTitle],
+    categoryPath: ["题库", parent, rootTitle],
+    level: index
+  }))
+  const records = [...makeRecords("root-a", "脑图A", "a"), ...makeRecords("root-b", "脑图B", "b")]
+  const options = buildMindMapOptions(records)
+  const mapA = options.find(option => option.name === "脑图A")
+  assert.ok(mapA)
+  const result = buildParentInsights(records, [mapA.key])
+  assert.equal(result.selectedMapCount, 1)
+  assert.equal(result.selectedRecords, 4)
+  assert.deepEqual(result.groups.map(group => [group.name, group.count]), [["组A", 2], ["组B", 2]])
 })
 
 test("索引同一卡片的重复标题只收录一次", () => {

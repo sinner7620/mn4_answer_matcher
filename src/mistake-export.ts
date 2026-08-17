@@ -7,6 +7,7 @@ export interface MistakeExportOptions {
   recordIds?: string[]
   format: "md" | "pdf"
   filename?: string
+  answerLayout?: "questions-first" | "interleaved"
   include?: {
     question?: boolean
     answer?: boolean
@@ -207,18 +208,41 @@ export function buildMistakeMarkdown(details: ExportDetail[], options: MistakeEx
   return `${lines.join("\n")}\n`
 }
 
+function pdfCardBody(documentHtml: string): string {
+  return bodyOf(documentHtml)
+    .replace(/<div\s+class=["']eyebrow["'][^>]*>[\s\S]*?<\/div>\s*/i, "")
+    .replace(/<h1[^>]*>[\s\S]*?<\/h1>\s*/i, "")
+}
+
+function pdfSourceLine(record: MistakeRecord): string {
+  return [record.sourceNotebookTitle, ...(record.sourcePathTitles || [])].filter(Boolean).join(" › ") || "未命名脑图"
+}
+
 export function buildMistakePdfHtml(details: ExportDetail[], options: MistakeExportOptions): string {
   const include = { question: true, answer: true, source: true, review: true, ...options.include }
-  const articles = details.map((detail, index) => {
+  const questionBlock = (detail: ExportDetail, index: number) => {
     const record = detail.record
-    const answers = detail.answers.length
-      ? detail.answers.map((answer, answerIndex) => `<section><h3>答案${detail.answers.length > 1 ? ` ${answerIndex + 1} · ${escapeHtml(answer.title)}` : ""}</h3>${bodyOf(answer.html)}</section>`).join("")
-      : `<p class=\"notice\">${detail.answerStatus === "unbound" ? "原题脑图尚未绑定答案脑图" : "当前未匹配到答案"}</p>`
-    const history = (record.history || []).map(item => `<li>${escapeHtml(formatDate(item.at))}：错题${item.level}级 · ${escapeHtml(LEVEL_DESCRIPTIONS[item.level])}</li>`).join("") || "<li>暂无复习记录</li>"
-    return `<article class=\"mistake\"><header><span>错题 ${index + 1}</span><h1>${escapeHtml(record.sourceTitle)}</h1><p>错题${record.level}级 · ${escapeHtml(LEVEL_DESCRIPTIONS[record.level])}　｜　${escapeHtml(record.categoryLabel || "未分类")}</p></header>${include.source ? `<section><h2>来源</h2><p>${escapeHtml([record.sourceNotebookTitle, ...(record.sourcePathTitles || [])].filter(Boolean).join(" › "))}</p><small>原卡片 ID：${escapeHtml(record.sourceNoteId)}　原脑图 ID：${escapeHtml(record.sourceNotebookId)}</small></section>` : ""}${include.question ? `<section><h2>原题卡片</h2>${bodyOf(detail.questionHtml)}</section>` : ""}${include.answer ? `<section class=\"answers\"><h2>实时匹配答案</h2>${answers}</section>` : ""}${include.review ? `<section><h2>复习记录</h2><p>加入：${escapeHtml(formatDate(record.createdAt))}　最近复习：${escapeHtml(formatDate(record.lastReviewedAt))}<br>下次复习：${escapeHtml(formatDate(record.nextReviewAt))}　完成次数：${record.reviewCount}</p><ul>${history}</ul></section>` : ""}</article>`
-  }).join("")
+    const source = include.source ? `<small class="problem-source">来源：${escapeHtml(pdfSourceLine(record))}</small>` : ""
+    const question = include.question ? `<section class="card-content">${pdfCardBody(detail.questionHtml)}</section>` : ""
+    const review = include.review ? `<small class="review-meta">错题${record.level}级 · ${escapeHtml(LEVEL_DESCRIPTIONS[record.level])}　加入 ${escapeHtml(formatDate(record.createdAt))}　下次 ${escapeHtml(formatDate(record.nextReviewAt))}</small>` : ""
+    return `<article class="mistake question-unit"><header class="problem-title"><span>${index + 1}.</span><h1>${escapeHtml(record.sourceTitle)}</h1></header>${source}${question}<div class="writing-space" aria-hidden="true"></div>${review}</article>`
+  }
+  const answerBlock = (detail: ExportDetail, index: number) => {
+    const record = detail.record
+    const answerCards = detail.answers.length
+      ? detail.answers.map((answer, answerIndex) => `<section class="answer-card">${detail.answers.length > 1 ? `<h2>解法 ${answerIndex + 1} · ${escapeHtml(answer.title)}</h2>` : ""}${answer.path ? `<small>${escapeHtml(answer.path)}</small>` : ""}${pdfCardBody(answer.html)}</section>`).join("")
+      : `<p class="notice">${detail.answerStatus === "unbound" ? "原题脑图尚未绑定答案脑图" : "当前未匹配到答案"}</p>`
+    return `<article class="mistake answer-unit"><header class="problem-title"><span>答案 ${index + 1}</span><h1>${escapeHtml(record.sourceTitle)}</h1></header>${include.source ? `<small class="problem-source">来源：${escapeHtml(pdfSourceLine(record))}</small>` : ""}<section class="answer-content">${answerCards}</section></article>`
+  }
+  const questionBlocks = details.map(questionBlock)
+  const answerBlocks = include.answer ? details.map(answerBlock) : []
+  const articles = (options.answerLayout === "questions-first"
+    ? [...questionBlocks, ...answerBlocks]
+    : details.flatMap((detail, index) => [questionBlock(detail, index), ...(include.answer ? [answerBlock(detail, index)] : [])])
+  ).join("")
+
   const readinessScript = `<script>(function(){window.__MN_PDF_EXPORT_PROTOCOL_V2__=true;var started=false,notified=false;function signal(name,message){if(notified)return;notified=true;var frame=document.createElement("iframe");frame.style.display="none";frame.src="mnaddon://"+name+(message?"?message="+encodeURIComponent(message):"");document.body.appendChild(frame)}function markBrokenImage(image){try{var holder=document.createElement("div");holder.setAttribute("data-pdf-image-error","true");holder.textContent="图片加载失败，原位置已保留";holder.style.cssText="min-height:48px;padding:14px;border:1px dashed #cbd5e1;border-radius:6px;background:#f8fafc;color:#64748b;text-align:center;font-size:11px";image.style.display="none";if(image.parentNode)image.parentNode.insertBefore(holder,image.nextSibling)}catch(error){}}function waitForImages(){return new Promise(function(resolve){var images=Array.prototype.slice.call(document.images||[]),remaining=images.length,failed=0;if(!remaining){resolve(0);return}function done(ok,image){if(!ok){failed+=1;markBrokenImage(image)}remaining-=1;if(!remaining)resolve(failed)}images.forEach(function(image){if(image.complete){done(image.naturalWidth!==0,image);return}function loaded(){cleanup();done(true,image)}function broken(){cleanup();done(false,image)}function cleanup(){image.removeEventListener("load",loaded);image.removeEventListener("error",broken)}image.addEventListener("load",loaded);image.addEventListener("error",broken)})})}function canvasFingerprint(canvas){try{var data=canvas.toDataURL("image/png"),hash=0,step=Math.max(1,Math.floor(data.length/64));for(var i=0;i<data.length;i+=step)hash=((hash<<5)-hash+data.charCodeAt(i))|0;return canvas.width+"x"+canvas.height+":"+data.length+":"+hash}catch(error){return canvas.width+"x"+canvas.height+":unavailable"}}function layoutSignature(){var root=document.documentElement,body=document.body,canvases=Array.prototype.slice.call(document.querySelectorAll("canvas")).map(canvasFingerprint).join(","),images=Array.prototype.slice.call(document.images||[]).map(function(image){return image.complete+":"+image.naturalWidth+"x"+image.naturalHeight}).join(",");return Math.max(root.scrollWidth,body.scrollWidth)+"x"+Math.max(root.scrollHeight,body.scrollHeight)+"|"+document.querySelectorAll("*").length+"|"+images+"|"+canvases}function waitForStableLayout(){return new Promise(function(resolve,reject){var deadline=Date.now()+10000,notBefore=Date.now()+600,previous="",stable=0;function sample(){requestAnimationFrame(function(){var current=layoutSignature();stable=current===previous?stable+1:0;previous=current;if(Date.now()>=notBefore&&stable>=3){resolve();return}if(Date.now()>deadline){reject(new Error("页面内容在限定时间内未稳定"));return}setTimeout(sample,120)})}sample()})}function waitForFrames(count){return new Promise(function(resolve){function next(){if(count--<=0){resolve();return}requestAnimationFrame(next)}next()})}window.__MN_PDF_EXPORT_BEGIN__=function(){if(started)return;started=true;var fonts=document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve();Promise.all([fonts,waitForImages()]).then(waitForStableLayout).then(function(){return waitForFrames(2)}).then(function(){signal("pdf-render-ready")}).catch(function(error){signal("pdf-render-error",error&&error.message?error.message:String(error))})}})();</script>`
-  return `<!doctype html><html><head><meta charset=\"utf-8\"><style>@page{size:A4;margin:15mm}*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,\"PingFang SC\",\"Hiragino Sans GB\",sans-serif;color:#172033;font-size:12px;line-height:1.55;margin:0}.cover{padding:80px 0 40px;border-bottom:2px solid #172033}.cover h1{font-size:30px;margin:0 0 12px}.cover p{color:#64748b}.mistake{page-break-before:always}.mistake>header{border-bottom:2px solid #1e3a8a;padding:4px 0 12px;margin-bottom:16px}.mistake>header span{color:#3157a4;font-weight:700}.mistake>header h1{font-size:23px;margin:4px 0}.mistake>header p{margin:0;color:#526078}section{page-break-inside:auto;margin:15px 0}h2{font-size:16px;border-left:4px solid #3157a4;padding-left:8px}h3{font-size:14px}img,svg,canvas{max-width:100%!important;height:auto!important;page-break-inside:avoid}article,div,p{max-width:100%}.notice{background:#f4f6f8;padding:12px;border-radius:7px;color:#64748b}small{color:#64748b}ul{padding-left:20px}</style></head><body><div class=\"cover\"><h1>MN4 错题导出</h1><p>导出时间：${escapeHtml(formatDate(new Date().toISOString()))}<br>共 ${details.length} 道错题</p></div>${articles}${readinessScript}</body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4;margin:12mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB",sans-serif;color:#172033;font-size:12px;line-height:1.55}.mistake{page-break-before:always;padding:3mm 1mm 0}.mistake:first-of-type{page-break-before:auto}.problem-title{display:flex;align-items:baseline;gap:8px;margin:0 0 2px;padding:0;border:0}.problem-title span{font-size:14px;font-weight:800;color:#111827;white-space:nowrap}.problem-title h1{font-size:18px;line-height:1.35;margin:0;font-weight:750}.problem-source{display:block;font-size:9.5px;color:#7b8494;margin:0 0 8px}.card-content,.answer-content{margin:0}.card-content .card,.answer-card .card{min-height:0!important;padding:0!important;background:#fff!important;color:#172033!important}.card-content .card>.eyebrow,.card-content .card>h1,.answer-card .card>.eyebrow,.answer-card .card>h1{display:none!important}.text-block,.html-block{font-size:13px!important;line-height:1.62!important;margin:7px 0!important;padding:8px 10px!important}.child{margin-top:10px!important;padding-top:8px!important}.child h2{font-size:13px!important;margin:0 0 6px!important}.card-content figure,.answer-content figure{margin:8px 0!important}.writing-space{height:22mm}.review-meta{display:block;font-size:8.5px;color:#9aa2af;margin-top:2mm}.answer-card{margin:0 0 12px;page-break-inside:auto}.answer-card>h2{font-size:12px;margin:8px 0 2px;padding:0;border:0}.answer-card>small{display:block;font-size:8.5px;color:#8a94a4;margin-bottom:5px}.notice{background:#f4f6f8;padding:10px;border-radius:6px;color:#64748b}img,svg,canvas{max-width:100%!important;height:auto!important;page-break-inside:avoid}article,section,div,p{max-width:100%}</style></head><body>${articles}${readinessScript}</body></html>`
 }
 
 export function exportMistakes(options: MistakeExportOptions): any {

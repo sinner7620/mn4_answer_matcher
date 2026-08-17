@@ -24,7 +24,8 @@ const paths = {
   organize: '<path d="M4 5h6M14 5h6M4 12h10M18 12h2M4 19h3M11 19h9"/><circle cx="12" cy="5" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="9" cy="19" r="2"/>',
   download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
   reset: '<path d="M8 3H3v5M16 21h5v-5"/><path d="M3.8 8A9 9 0 0 1 19 5M20.2 16A9 9 0 0 1 5 19"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.1"/>'
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.1"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/>'
 }
 
 export function Icon({ name, className = "" }) {

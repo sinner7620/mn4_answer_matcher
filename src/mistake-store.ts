@@ -51,6 +51,12 @@ function normalizeRecord(value: any): MistakeRecord | undefined {
     categoryPath: Array.isArray(value.categoryPath) && value.categoryPath.length
       ? value.categoryPath.map(String)
       : [String(value.sourceNotebookTitle || "未命名脑图"), ...(value.sourcePathTitles || []).map(String)],
+    manualCategory: value.manualCategory ? String(value.manualCategory) : undefined,
+    manualCategories: Array.isArray(value.manualCategories)
+      ? value.manualCategories.map(String)
+      : value.manualCategory
+        ? [String(value.manualCategory)]
+        : [],
     level: Number.isInteger(value.level) && value.level >= 0 && value.level <= 5 ? value.level : 0,
     createdAt,
     updatedAt: String(value.updatedAt || value.lastReviewedAt || createdAt),

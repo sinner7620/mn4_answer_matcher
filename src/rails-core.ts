@@ -22,6 +22,7 @@ import {
   unbindCurrent
 } from "./plugin"
 import {
+  deleteMistakeTag,
   markQuestionAsMistake,
   mistakeDetailById,
   mistakeWorkbenchData,
@@ -78,7 +79,13 @@ async function bridge(command: string, payload: any): Promise<any> {
   if (command === "reviewMistake") return reviewMistakeById(String(payload?.recordId ?? ""), Number(payload?.level) as any)
   if (command === "reviewMistakes") return reviewMistakesByIds(payload?.recordIds, Number(payload?.level) as any)
   if (command === "saveMistakeReviewCurves") return saveMistakeReviewCurves(payload?.curves)
-  if (command === "setMistakeCategory") return setMistakeCategoryById(String(payload?.recordId ?? ""), String(payload?.category ?? ""))
+  if (command === "setMistakeCategory") {
+    return setMistakeCategoryById(
+      String(payload?.recordId ?? ""),
+      payload?.categories ?? String(payload?.category ?? "")
+    )
+  }
+  if (command === "deleteMistakeTag") return deleteMistakeTag(String(payload?.tag ?? ""))
   if (command === "removeMistake") {
     await removeMistakeById(String(payload?.recordId ?? ""))
     return { removed: true }

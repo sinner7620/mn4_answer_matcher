@@ -1,5 +1,5 @@
 var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
-  // beta.5: panel size is session-only; every MarginNote restart returns to the default frame.
+  // Panel size is session-only; every MarginNote restart returns to the default frame.
   var FRAME_KEY = "marginnote.extension.mn4-answer-matcher.rails.frame.v4";
   var OPEN_KEY = "marginnote.extension.mn4-answer-matcher.rails.open";
   var SCHEME = "mnaddon";
@@ -66,6 +66,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   function resetFrame(controller) {
     if (!controller || !controller.view) return { reset: false };
     var frame = defaultFrame(controller);
+    controller.view.autoresizingMask = 0;
     controller.view.frame = frame;
     saveFrame(controller);
     return { reset: true, frame: frame };
@@ -77,9 +78,44 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
       if (remember !== false) NSUserDefaults.standardUserDefaults().setObjectForKey(false, OPEN_KEY);
       return;
     }
+    // Do not save here. MarginNote may be in the middle of resizing its study
+    // view while a notebook is closing; sampling that transient frame causes
+    // cumulative panel growth across notebook switches.
     controller.view.hidden = true;
     if (controller.view.superview) controller.view.removeFromSuperview();
     if (remember !== false) NSUserDefaults.standardUserDefaults().setObjectForKey(false, OPEN_KEY);
+  }
+
+  function preservePanelForNotebookSwitch(controller) {
+    if (!controller || !controller.webView) return;
+    controller.preserveAcrossNotebookSwitch = true;
+    controller.view.autoresizingMask = 0;
+    // Reapply only the stable session frame. Never learn a new size from the
+    // notebook transition itself.
+    controller.view.frame = savedFrame(controller);
+  }
+
+  function restorePanelAfterNotebookSwitch(controller) {
+    if (!controller) return;
+    var study = Application.sharedInstance().studyController(controller.addon.window);
+    var frame = savedFrame(controller);
+    controller.view.autoresizingMask = 0;
+    if (controller.view.superview !== study.view) {
+      if (controller.view.superview) controller.view.removeFromSuperview();
+      study.view.addSubview(controller.view);
+    }
+    controller.view.frame = frame;
+    lockWebViewRootScroll(controller);
+    controller.view.hidden = false;
+    controller.preserveAcrossNotebookSwitch = false;
+  }
+
+  function ensureLayout(controller) {
+    if (!controller || !controller.view || controller.userAdjustingFrame) return;
+    if (!controller.sessionFrame || controller.view.hidden) return;
+    controller.view.autoresizingMask = 0;
+    controller.view.frame = savedFrame(controller);
+    lockWebViewRootScroll(controller);
   }
 
   function lockWebViewRootScroll(controller) {
@@ -101,6 +137,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
 
   function setup(controller) {
     var frame = { x: 0, y: 0, width: 900, height: 640 };
+    controller.view.autoresizingMask = 0;
     controller.view.frame = frame;
     controller.view.backgroundColor = UIColor.whiteColor();
     controller.view.layer.cornerRadius = 14;
@@ -161,16 +198,21 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
       viewDidLoad: function () { setup(self); },
       closeWindow: function () { closePanel(self, true); },
       handlePan: function (gesture) {
+        if (gesture.state === 1) self.userAdjustingFrame = true;
         var translation = gesture.translationInView(self.view.superview);
         self.view.center = {
           x: self.view.center.x + translation.x,
           y: self.view.center.y + translation.y
         };
         gesture.setTranslationInView({ x: 0, y: 0 }, self.view.superview);
-        if (gesture.state === 3) saveFrame(self);
+        if (gesture.state === 3 || gesture.state === 4 || gesture.state === 5) {
+          saveFrame(self);
+          self.userAdjustingFrame = false;
+        }
       },
       handleResize: function (gesture) {
         if (gesture.state === 1) {
+          self.userAdjustingFrame = true;
           self.resizeStart = { location: gesture.locationInView(self.view.superview), frame: self.view.frame };
         }
         if (!self.resizeStart) return;
@@ -182,9 +224,10 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
           height: Math.max(MIN_HEIGHT, self.resizeStart.frame.height + point.y - self.resizeStart.location.y)
         };
         lockWebViewRootScroll(self);
-        if (gesture.state === 3) {
+        if (gesture.state === 3 || gesture.state === 4 || gesture.state === 5) {
           saveFrame(self);
           self.resizeStart = null;
+          self.userAdjustingFrame = false;
         }
       },
       webViewShouldStartLoadWithRequestNavigationType: function (webView, request) {
@@ -247,8 +290,16 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   function showPanel(controller) {
     if (!controller) return;
     var study = Application.sharedInstance().studyController(controller.addon.window);
-    if (!controller.view.superview) study.view.addSubview(controller.view);
-    controller.view.frame = savedFrame(controller);
+    var frame = savedFrame(controller);
+    controller.view.autoresizingMask = 0;
+    if (controller.view.superview !== study.view) {
+      if (controller.view.superview) controller.view.removeFromSuperview();
+      study.view.addSubview(controller.view);
+    }
+    controller.view.frame = frame;
+    // Establish a stable frame at a controlled point. Only explicit user
+    // movement/resizing or resetFrame may change sessionFrame afterwards.
+    saveFrame(controller);
     lockWebViewRootScroll(controller);
     controller.view.hidden = false;
     NSUserDefaults.standardUserDefaults().setObjectForKey(true, OPEN_KEY);
@@ -263,11 +314,13 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   return {
     createController: createController,
     showPanel: showPanel,
+    preservePanelForNotebookSwitch: preservePanelForNotebookSwitch,
+    restorePanelAfterNotebookSwitch: restorePanelAfterNotebookSwitch,
     resetFrame: resetFrame,
     hidePanel: closePanel,
     destroyPanel: destroyPanel,
     shouldRestorePanel: function () { return NSUserDefaults.standardUserDefaults().objectForKey(OPEN_KEY) === true; },
     isVisible: function (controller) { return !!(controller && controller.view && controller.view.superview && !controller.view.hidden); },
-    ensureLayout: function () {}
+    ensureLayout: ensureLayout
   };
 })();

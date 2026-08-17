@@ -1,5 +1,6 @@
 const DAY = 86400000
 const levelDays = [1, 1, 3, 7, 30, 60]
+let customCategories = ["计算题", "概念辨析", "需要重做"]
 
 function dateFromNow(days) {
   return new Date(Date.now() + days * DAY).toISOString()
@@ -112,7 +113,7 @@ function workbench() {
     categories: [],
     migratedFromLegacy: 0,
     reviewCurves: { 0: [1], 1: [1], 2: [3], 3: [7, 14], 4: [30], 5: [60] },
-    customCategories: ["计算题", "概念辨析", "需要重做"]
+    customCategories
   }
 }
 
@@ -132,7 +133,7 @@ function detail(recordId) {
 
 export async function previewSend(command, payload = null) {
   if (command === "dashboard") return {
-    version: "2.3.1-beta.25 · 完整界面预览",
+    version: "2.3.2-beta.1 · 完整界面预览",
     mistakes: workbench(),
     matching: {
       scopedBinding: true,
@@ -170,8 +171,26 @@ export async function previewSend(command, payload = null) {
   }
   if (command === "setMistakeCategory") {
     const record = records.find(item => item.recordId === String(payload?.recordId ?? ""))
-    if (record) record.manualCategory = String(payload?.category ?? "")
+    if (record) {
+      const next = Array.isArray(payload?.categories) ? payload.categories.map(String) : [String(payload?.category ?? "")].filter(Boolean)
+      record.manualCategories = [...new Set(next)]
+      record.manualCategory = record.manualCategories[0]
+      customCategories = [...new Set([...customCategories, ...record.manualCategories])]
+    }
     return record
+  }
+  if (command === "deleteMistakeTag") {
+    const tag = String(payload?.tag ?? "")
+    customCategories = customCategories.filter(item => item !== tag)
+    let changed = 0
+    for (const record of records) {
+      const previous = record.manualCategories || (record.manualCategory ? [record.manualCategory] : [])
+      if (!previous.includes(tag)) continue
+      record.manualCategories = previous.filter(item => item !== tag)
+      record.manualCategory = record.manualCategories[0]
+      changed++
+    }
+    return { tag, changed }
   }
   if (command === "removeMistake") {
     const index = records.findIndex(item => item.recordId === String(payload?.recordId ?? ""))

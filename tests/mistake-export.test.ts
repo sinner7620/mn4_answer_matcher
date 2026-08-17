@@ -53,9 +53,15 @@ test("PDF HTML 是分页、自包含且保留卡片绘制脚本", async () => {
   const html = buildMistakePdfHtml([detail], { ...options, format: "pdf" })
   assert.match(html, /@page\{size:A4/)
   assert.match(html, /page-break-before:always/)
+  assert.match(html, /problem-title/)
+  assert.match(html, /<span>1\.<\/span><h1>1994数一<\/h1>/)
+  assert.match(html, /problem-source\">来源：多元微分 › 基本概念题/)
+  assert.match(html, /writing-space/)
   assert.match(html, /renderDrawing\(\)/)
   assert.match(html, /第一种答案/)
   assert.match(html, /第二种答案/)
+  assert.doesNotMatch(html, />原题卡片</)
+  assert.doesNotMatch(html, /原卡片 ID|原脑图 ID/)
   assert.match(html, /__MN_PDF_EXPORT_BEGIN__/)
   assert.match(html, /__MN_PDF_EXPORT_PROTOCOL_V2__/)
   assert.match(html, /waitForImages/)
@@ -65,6 +71,33 @@ test("PDF HTML 是分页、自包含且保留卡片绘制脚本", async () => {
   assert.match(html, /canvasFingerprint/)
   assert.match(html, /signal\("pdf-render-ready"\)/)
   assert.match(html, /pdf-render-error/)
+})
+
+test("PDF 支持题目集中/答案集中与题目答案交替两种顺序", async () => {
+  const { buildMistakePdfHtml } = await exportModule
+  const second = {
+    ...detail,
+    record: { ...detail.record, recordId: "book:question-2", sourceNoteId: "question-2", sourceTitle: "1995数一" }
+  }
+  const grouped = buildMistakePdfHtml([detail, second], { ...options, format: "pdf", answerLayout: "questions-first" })
+  assert.ok(grouped.indexOf("<span>1.</span><h1>1994数一") < grouped.indexOf("<span>2.</span><h1>1995数一"))
+  assert.ok(grouped.indexOf("<span>2.</span><h1>1995数一") < grouped.indexOf("<span>答案 1</span><h1>1994数一"))
+  assert.ok(grouped.indexOf("<span>答案 1</span><h1>1994数一") < grouped.indexOf("<span>答案 2</span><h1>1995数一"))
+
+  const interleaved = buildMistakePdfHtml([detail, second], { ...options, format: "pdf", answerLayout: "interleaved" })
+  assert.ok(interleaved.indexOf("<span>1.</span><h1>1994数一") < interleaved.indexOf("<span>答案 1</span><h1>1994数一"))
+  assert.ok(interleaved.indexOf("<span>答案 1</span><h1>1994数一") < interleaved.indexOf("<span>2.</span><h1>1995数一"))
+})
+
+test("PDF 卡片正文移除卡片自身标题，避免与题目名重复", async () => {
+  const { buildMistakePdfHtml } = await exportModule
+  const titled = {
+    ...detail,
+    questionHtml: '<html><body><article class="card"><div class="eyebrow">题目</div><h1>重复标题</h1><p>正文保留</p></article></body></html>'
+  }
+  const html = buildMistakePdfHtml([titled], { ...options, format: "pdf" })
+  assert.doesNotMatch(html, /重复标题/)
+  assert.match(html, /正文保留/)
 })
 
 test("Markdown 压缩包会把 data URI 改写为有限长度的 assets 路径", async () => {
@@ -93,34 +126,37 @@ test("MarginNote 图片使用媒体 ID 写出，不调用 NSData base64 解码",
   assert.match(bundle.markdown, /assets\/asset-0001\.png/)
 })
 
-test("PDF 导出在 WebView 本地生成字节并分块写入真实 PDF 文件", () => {
+test("PDF 导出只使用当前文档确认的 WebView、NSData 与 saveFileWithUti 边界", () => {
   const bridge = readFileSync("rails-native/WebBridgeCommands.js", "utf8")
   assert.match(bridge, /stagePdfRenderPage/)
   assert.match(bridge, /MN4AnswerMatcherPdfRuntime-beta33/)
-  assert.match(bridge, /copyItemAtPathToPath/)
   assert.match(bridge, /NSData\.dataWithStringEncoding\(preparePdfHtml\(html\), 4\)/)
   assert.match(bridge, /<script src="\.\/html2canvas\.min\.js"><\/script>/)
   assert.match(bridge, /<script src="\.\/jspdf\.umd\.min\.js"><\/script>/)
   assert.match(bridge, /<script src="\.\/pdf-export-runtime\.js"><\/script>/)
   assert.match(bridge, /loadRequest\(NSURLRequest\.requestWithURL\(entry\)\)/)
-  assert.doesNotMatch(bridge, /vendors\.map\(function \(vendor\)/)
+  assert.match(bridge, /__MN_PDF_FILE_FALLBACK_BEGIN__/)
   assert.match(bridge, /__MN_PDF_EXPORT_TAKE_CHUNK__/)
-  assert.match(bridge, /dataWithBase64EncodedStringOptions/)
+  assert.match(bridge, /NSData\.dataWithStringEncoding\(binary, 5\)/)
   assert.match(bridge, /writeToFileAtomically/)
   assert.match(bridge, /saveFileWithUti\(path, "com\.adobe\.pdf"\)/)
   assert.match(bridge, /pdfGenerated: true/)
-  assert.match(bridge, /本地 PDF 生成超时/)
+  assert.doesNotMatch(bridge, /dataWithBase64EncodedStringOptions/)
+  assert.doesNotMatch(bridge, /viewPrintFormatter|UIPrintInteractionController|window\.print/)
   assert.doesNotMatch(bridge, /UIGraphicsBeginPDF|UIGraphicsEndPDF/)
 
   const runtime = readFileSync("web/pdf-export-runtime.js", "utf8")
   assert.match(runtime, /window\.html2canvas/)
   assert.match(runtime, /window\.jspdf\.jsPDF/)
-  assert.match(runtime, /querySelectorAll\("\.cover, \.mistake"\)/)
   assert.match(runtime, /pdf\.output\("arraybuffer"\)/)
-  assert.match(runtime, /CHUNK_SIZE = 65536/)
+  assert.match(runtime, /Math\.max\(2\.5, Math\.min\(3, pixelRatio \* 1\.5\)\)/)
+  assert.match(runtime, /image\/jpeg", 0\.97/)
+  assert.match(runtime, /undefined, "SLOW"/)
+  assert.match(runtime, /__MN_PDF_FILE_FALLBACK_BEGIN__/)
   assert.match(runtime, /mnaddon:\/\/" \+ name/)
 
   const panel = readFileSync("rails-native/WebPanelController.js", "utf8")
+  assert.match(panel, /mnaddon:\/\/pdf-render-ready/)
   assert.match(panel, /mnaddon:\/\/pdf-data-ready/)
   assert.match(panel, /pdfDataReady/)
   assert.match(panel, /pdfRenderError/)
