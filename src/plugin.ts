@@ -32,8 +32,8 @@ import {
   targetForMode
 } from "./store"
 import { loadMatcherSettings, saveMatcherSettings } from "./settings"
-import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
-import { isSelectableMindMapRoot } from "./mindmap-candidate"
+import { mindMapRoot, nodeIdentifier, MAIN_MINDMAP_SCOPE_ID } from "./mindmap-scope"
+import { collectChildMindMapNoteIds, isSelectableMindMapRoot, mindMapScopeIdForNote } from "./mindmap-candidate"
 import {
   closeAnswerCard,
   onAnswerCardPan,
@@ -117,12 +117,33 @@ function mindMapTitle(node: NodeNote): string {
   return node.title?.trim() || "未命名脑图"
 }
 
-function sourceMindMap(): { notebookId: string; rootNodeId: string; title: string } | undefined {
-  const notebookId = currentNotebookId()
-  const question = selectedQuestion()
+function childMapIdsForNotebook(notebookId: string): string[] {
+  const notebook = MN.db.getNotebookById(notebookId)
+  return notebook ? collectChildMindMapNoteIds(notebook.notes ?? []) : []
+}
+
+function sourceMindMap(
+  notebookId = currentNotebookId(),
+  question = selectedQuestion()
+): { notebookId: string; rootNodeId: string; title: string } | undefined {
+
+
   if (!notebookId || !question) return undefined
-  const root = mindMapRoot(question)
-  return { notebookId, rootNodeId: nodeIdentifier(root), title: mindMapTitle(root) }
+  const rootNodeId = mindMapScopeIdForNote(question.note, childMapIdsForNotebook(notebookId))
+  if (rootNodeId === MAIN_MINDMAP_SCOPE_ID) return { notebookId, rootNodeId, title: "主脑图" }
+  const rootNote = MN.db.getNoteById(rootNodeId)
+  if (rootNote) {
+    try {
+      return { notebookId, rootNodeId, title: mindMapTitle(new NodeNote(rootNote, notebookId)) }
+    } catch {
+      // Fall through to the selected note title if the child-map root is damaged.
+    }
+  }
+  return { notebookId, rootNodeId, title: question.title?.trim() || "未命名子脑图" }
+}
+
+function sourceMindMapId(notebookId: string, question: NodeNote): string {
+  return sourceMindMap(notebookId, question)?.rootNodeId ?? nodeIdentifier(mindMapRoot(question))
 }
 
 async function mindMapCandidates(notebookId: string): Promise<MindMapCandidate[]> {
@@ -159,6 +180,39 @@ async function mindMapCandidates(notebookId: string): Promise<MindMapCandidate[]
       rootTitle,
       title: `${notebook.title?.trim() || "未命名学习集"} › ${rootTitle}`
     })
+  }
+  return candidates
+}
+
+async function mindMapCandidatesByScope(notebookId: string): Promise<MindMapCandidate[]> {
+  const notebook = MN.db.getNotebookById(notebookId)
+  if (!notebook) return []
+  const notebookName = notebook.title?.trim() || "未命名学习集"
+  const candidates: MindMapCandidate[] = [{
+    notebookId,
+    rootNodeId: MAIN_MINDMAP_SCOPE_ID,
+    rootTitle: "主脑图",
+    title: `${notebookName} › 主脑图`
+  }]
+  const childMapIds = collectChildMindMapNoteIds(notebook.notes ?? [])
+  for (let index = 0; index < childMapIds.length; index++) {
+    const rootNodeId = childMapIds[index]
+    const rootNote = MN.db.getNoteById(rootNodeId)
+    let rootTitle = "未命名子脑图"
+    if (rootNote) {
+      try {
+        rootTitle = mindMapTitle(new NodeNote(rootNote, notebookId))
+      } catch (error) {
+        MN.error(error)
+      }
+    }
+    candidates.push({
+      notebookId,
+      rootNodeId,
+      rootTitle,
+      title: `${notebookName} › ${rootTitle}`
+    })
+    if (index % 80 === 79) await delay(0.01)
   }
   return candidates
 }
@@ -279,7 +333,7 @@ async function bindAnswerNotebook(): Promise<void> {
   await delay(0.05)
   let scanned: MindMapCandidate[]
   try {
-    scanned = await mindMapCandidates(targetNotebookId)
+    scanned = await mindMapCandidatesByScope(targetNotebookId)
   } finally {
     HUDController.hidden()
   }
@@ -384,11 +438,12 @@ export { onAnswerCardPan, onAnswerCardResize }
 export { onNotebookPickerAction }
 
 export async function findCurrentAnswer(): Promise<void> {
+  const question = selectedQuestion()
   const questionNotebookId = currentNotebookId()
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
-  const question = selectedQuestion()
+
   if (!question) return showHUD("请先选中一张题目卡片")
-  const sourceRootNodeId = nodeIdentifier(mindMapRoot(question))
+  const sourceRootNodeId = sourceMindMapId(questionNotebookId, question)
   const storedTarget = bindingForSource(questionNotebookId, sourceRootNodeId)
   const answerTarget = storedTarget && effectiveAnswerTarget(storedTarget)
   if (!answerTarget) {

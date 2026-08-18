@@ -8,7 +8,7 @@
 - D1 数据库：`mnrails-telemetry-db`
 - Worker Binding：`DB`
 
-插件只发送 `schema`、随机 `install_id`、插件 `version` 和 `channel`。正式版和 Beta 使用相同的本地键保存安装 ID；切换版本或渠道不会新增安装实例。上报最多每 12 小时一次，仅 HTTP 204 后更新时间，2 秒超时或任何失败都静默，不影响更新检查或插件功能。
+插件只发送 `schema`、随机 `install_id`、插件 `version` 和 `channel`。正式版和 Beta 使用相同的本地键保存安装 ID；切换版本或渠道不会新增安装实例。上报最多每 12 小时一次，仅 HTTP 204 后更新时间，8 秒超时或任何失败都静默，不影响更新检查或插件功能。
 
 ## 在 Cloudflare 控制台查询
 

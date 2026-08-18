@@ -19,7 +19,14 @@ import {
   setBinding,
   targetForMode
 } from "../src/binding"
-import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
+import {
+  MAIN_MINDMAP_SCOPE_ID,
+  childMindMapNoteId,
+  collectChildMindMapNoteIds,
+  isSelectableMindMapRoot,
+  mindMapScopeIdForNote,
+  noteBelongsToMindMapScope
+} from "../src/mindmap-candidate"
 
 test("同一学习集中的不同脑图可保存独立答案绑定并兼容旧绑定", () => {
   const bindings: any = { questions: "legacy-answers" }
@@ -63,6 +70,28 @@ test("绑定候选排除无标题内部节点，只保留有标题的顶层脑�
   assert.equal(isSelectableMindMapRoot(false, "  "), false)
   assert.equal(isSelectableMindMapRoot(true, "普通子卡片"), false)
   assert.equal(isSelectableMindMapRoot(false, "🐙1000第九章基础22", "source", ["source", "group"]), false)
+})
+
+test("脑图范围按主脑图和公开 childMindMap API 划分", () => {
+  const childId = "4C82C823-D256-4821-85AE-3FB0D5C4EBEB"
+  const childMindMap = { noteId: childId }
+  const notes = [
+    { noteId: "main-card" },
+    { noteId: childId },
+    { noteId: "child-card-1", childMindMap },
+    { noteId: "child-card-2", childMindMap }
+  ]
+  assert.equal(childMindMapNoteId(notes[0]), "")
+  assert.equal(childMindMapNoteId(notes[2]), childId)
+  assert.deepEqual(collectChildMindMapNoteIds(notes), [childId])
+  assert.equal(mindMapScopeIdForNote(notes[0], [childId]), MAIN_MINDMAP_SCOPE_ID)
+  assert.equal(mindMapScopeIdForNote(notes[1], [childId]), childId)
+  assert.equal(mindMapScopeIdForNote(notes[2], [childId]), childId)
+  assert.equal(noteBelongsToMindMapScope(notes[0], MAIN_MINDMAP_SCOPE_ID, [childId]), true)
+  assert.equal(noteBelongsToMindMapScope(notes[1], MAIN_MINDMAP_SCOPE_ID, [childId]), false)
+  assert.equal(noteBelongsToMindMapScope(notes[2], MAIN_MINDMAP_SCOPE_ID, [childId]), false)
+  assert.equal(noteBelongsToMindMapScope(notes[1], childId), true)
+  assert.equal(noteBelongsToMindMapScope(notes[2], childId), true)
 })
 
 test("标题标准化忽略全半角、空白、常见中英文标点和大小写", () => {

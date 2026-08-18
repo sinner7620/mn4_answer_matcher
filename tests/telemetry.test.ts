@@ -31,6 +31,7 @@ test("上报只接受 204，并在成功后记录时间且失败全程静默", (
   const source = readFileSync("src/telemetry.ts", "utf8")
   assert.match(source, /telemetryStatusCode\(response\) === 204/)
   assert.match(source, /if \(await postTelemetry\(id\)\) rememberSuccess/)
+  assert.match(source, /const REQUEST_TIMEOUT_SECONDS = 8/)
   assert.match(source, /setTimeoutInterval\(REQUEST_TIMEOUT_SECONDS\)/)
   assert.match(source, /catch \{\s*\/\/ Best effort only/)
   assert.doesNotMatch(source, /showHUD|popup|MN\.error/)

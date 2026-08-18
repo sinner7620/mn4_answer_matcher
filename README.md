@@ -4,7 +4,7 @@
 
 ## 安装
 
-直接双击 `dist/mn4-answer-matcher-v1.9.10.mnaddon`，由 MarginNote 4 导入。
+直接双击 `dist/mn4-answer-matcher-v1.9.11.mnaddon`，由 MarginNote 4 导入。
 > 此版本已通过 MarginNote 官方认证。
 
 插件每 12 小时自动检查一次正式版更新；也可从插件菜单选择“检查插件更新”，下载并保存正式版安装包，或查看“增加错题功能”的 Beta 版说明并下载 Beta 安装包。更新检查优先请求 [GitHub Releases](https://github.com/sinner7620/mn4_answer_matcher/releases)，GitHub 检查或下载失败时自动回退到 [Gitee Releases](https://gitee.com/baidreams/CardLink/releases)。点开保存的 `.mnaddon` 文件即可手动安装，原有脑图绑定记录会保留，并在下载前额外写入恢复备份。
