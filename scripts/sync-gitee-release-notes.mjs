@@ -38,12 +38,44 @@ async function releaseBody() {
   }
 }
 
+async function uploadArtifact(releaseId) {
+  const artifact = await findArtifact()
+  const fileName = path.basename(artifact)
+  const attachmentsResp = await fetch(apiUrl(`/releases/${releaseId}/attach_files`))
+  if (!attachmentsResp.ok) {
+    throw new Error(`查询 Gitee Release 附件失败 (${attachmentsResp.status})：${await attachmentsResp.text().catch(() => "")}`)
+  }
+  const attachments = await attachmentsResp.json().catch(() => [])
+  if (Array.isArray(attachments)) {
+    const existingAssets = attachments.filter(item => item?.name === fileName && item?.id)
+    for (const asset of existingAssets) {
+      const deleteResp = await fetch(apiUrl(`/releases/${releaseId}/attach_files/${asset.id}`), { method: "DELETE" })
+      if (!deleteResp.ok) {
+        throw new Error(`删除旧 Gitee Release 附件失败 (${deleteResp.status})：${await deleteResp.text().catch(() => "")}`)
+      }
+      console.log(`旧附件已删除: ${fileName}`)
+    }
+  }
+  const form = new FormData()
+  form.append("file", new Blob([await readFile(artifact)]), fileName)
+  const uploadResp = await fetch(apiUrl(`/releases/${releaseId}/attach_files`), {
+    method: "POST",
+    body: form,
+  })
+  if (!uploadResp.ok) {
+    throw new Error(`上传附件失败 (${uploadResp.status})：${await uploadResp.text().catch(() => "")}`)
+  }
+  const uploaded = await uploadResp.json()
+  console.log(`附件已上传: ${uploaded.name}`)
+}
+
 const listResp = await fetch(apiUrl("/releases?per_page=100"))
 const list = await listResp.json().catch(() => null)
 if (Array.isArray(list)) {
   const existing = list.find(item => item.tag_name === tag)
   if (existing) {
-    console.log(`SKIP: Gitee release ${tag} 已存在 (id=${existing.id})`)
+    console.log(`UPDATE: Gitee release ${tag} 已存在 (id=${existing.id})，保留说明并替换安装包附件`)
+    await uploadArtifact(existing.id)
     process.exit(0)
   }
 }
@@ -65,16 +97,4 @@ if (!createResp.ok) {
 }
 const created = await createResp.json()
 console.log(`Gitee release ${tag} 已创建 (id=${created.id})`)
-
-const artifact = await findArtifact()
-const form = new FormData()
-form.append("file", new Blob([await readFile(artifact)]), path.basename(artifact))
-const uploadResp = await fetch(apiUrl(`/releases/${created.id}/attach_files`), {
-  method: "POST",
-  body: form,
-})
-if (!uploadResp.ok) {
-  throw new Error(`上传附件失败 (${uploadResp.status})：${await uploadResp.text().catch(() => "")}`)
-}
-const uploaded = await uploadResp.json()
-console.log(`附件已上传: ${uploaded.name}`)
+await uploadArtifact(created.id)

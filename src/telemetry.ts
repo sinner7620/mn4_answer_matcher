@@ -3,7 +3,7 @@ export const TELEMETRY_INTERVAL = 12 * 60 * 60 * 1000
 
 const INSTALL_ID_KEY = "marginnote.extension.mn4-answer-matcher.telemetry.install-id"
 const LAST_SUCCESS_KEY = "marginnote.extension.mn4-answer-matcher.telemetry.last-success"
-const REQUEST_TIMEOUT_SECONDS = 2
+const REQUEST_TIMEOUT_SECONDS = 8
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 let reportInFlight = false
