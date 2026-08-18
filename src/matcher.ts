@@ -12,6 +12,7 @@ import { readSafeNote } from "./safe-note"
 import { renderCardHtml } from "./card-html"
 import { loadStoredIndex, saveStoredIndex, StoredAnswerIndexItem } from "./index-store"
 import { isInMindMap, nodeIdentifier } from "./mindmap-scope"
+import { collectChildMindMapNoteIds } from "./mindmap-candidate"
 import { IndexScope as MindMapScope, scopeKey } from "./scope-key"
 import type { RegexMatchingRules } from "./binding"
 import { createRegexKeyExtractor } from "./regex-matching"
@@ -74,6 +75,7 @@ export async function refreshIndex(scope: string | MindMapScope): Promise<Refres
   let skippedCards = 0
   let brokenLinks = 0
   const notes = notebook.notes ?? []
+  const childMapIds = collectChildMindMapNoteIds(notes)
   for (let index = 0; index < notes.length; index++) {
     const note = notes[index]
     if (!note) {
@@ -82,7 +84,7 @@ export async function refreshIndex(scope: string | MindMapScope): Promise<Refres
     }
     try {
       const node = new NodeNote(note, notebookId)
-      if (!isInMindMap(node, rootNodeId)) continue
+      if (!isInMindMap(node, rootNodeId, childMapIds)) continue
       const result = toIndexedAnswer(note, notebookId)
       brokenLinks += result.brokenLinks
       if (!byId.has(result.answer.id)) byId.set(result.answer.id, result.answer)

@@ -1,6 +1,7 @@
 import { MN, NodeNote } from "marginnote"
 import { BindingTarget } from "./binding"
 import { nodeIdentifier } from "./mindmap-scope"
+import { collectChildMindMapNoteIds, noteBelongsToMindMapScope } from "./mindmap-candidate"
 import {
   buildOrderedPairing,
   PairingBuildResult,
@@ -56,6 +57,40 @@ export function collectPairingGroups(root: NodeNote): PairingGroup[] {
   return groups
 }
 
+export function collectPairingGroupsForScope(notebookId: string, scopeId: string): PairingGroup[] {
+  const notebook = MN.db.getNotebookById(notebookId)
+  if (!notebook) return []
+  const notes = notebook.notes ?? []
+  const childMapIds = collectChildMindMapNoteIds(notes)
+  const groups: PairingGroup[] = []
+  const visited = new Set<string>()
+  for (const note of notes) {
+    if (!note || !noteBelongsToMindMapScope(note, scopeId, childMapIds)) continue
+    try {
+      const node = new NodeNote(note, notebookId)
+      const id = nodeIdentifier(node)
+      if (!id || visited.has(id)) continue
+      visited.add(id)
+      const children = safeChildren(node).filter(child =>
+        noteBelongsToMindMapScope(child.note, scopeId, childMapIds)
+      )
+      if (!children.length) continue
+      groups.push({
+        nodeId: id,
+        title: node.title?.trim() || "",
+        children: children.map(child => ({
+          nodeId: nodeIdentifier(child),
+          noteId: noteId(child),
+          title: child.title?.trim() || ""
+        }))
+      })
+    } catch {
+      // Ignore a damaged note; other nodes in the same mind map can still pair.
+    }
+  }
+  return groups
+}
+
 export function findMindMapNode(notebookId: string, rootNodeId: string): NodeNote | undefined {
   const direct = MN.db.getNoteById(rootNodeId)
   if (direct) {
@@ -85,13 +120,11 @@ export function buildOrderedPairingForBinding(
   target: BindingTarget
 ): PairingBuildResult {
   if (!target.rootNodeId) throw new Error("顺序匹配需要先绑定具体答案脑图")
-  const sourceRoot = findMindMapNode(sourceNotebookId, sourceRootNodeId)
-  if (!sourceRoot) throw new Error("找不到当前题目脑图根节点")
-  const answerRoot = findMindMapNode(target.notebookId, target.rootNodeId)
-  if (!answerRoot) throw new Error("找不到已绑定的答案脑图根节点")
+  const sourceGroups = collectPairingGroupsForScope(sourceNotebookId, sourceRootNodeId)
+  const answerGroups = collectPairingGroupsForScope(target.notebookId, target.rootNodeId)
   return buildOrderedPairing(
-    collectPairingGroups(sourceRoot),
-    collectPairingGroups(answerRoot),
+    sourceGroups,
+    answerGroups,
     {
       sourceNotebookId,
       sourceRootNodeId,

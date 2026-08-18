@@ -30,7 +30,13 @@ import {
   validateRegexMatchingRules
 } from "../src/regex-matching"
 import { scopeKey } from "../src/scope-key"
-import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
+import {
+  MAIN_MINDMAP_SCOPE_ID,
+  childMindMapNoteId,
+  collectChildMindMapNoteIds,
+  mindMapScopeIdForNote,
+  noteBelongsToMindMapScope
+} from "../src/mindmap-candidate"
 import { buildMindMapOptions, buildParentInsights, buildSourceInsights } from "../src/source-insights"
 import { cleanMistakeTags, customMistakeTagsFromSource, mistakeSourceTags, mistakeStateFromSourceTags, withoutMistakeSourceTags } from "../src/mistake-tags"
 import {
@@ -220,12 +226,26 @@ test("父节点标题重复时不进行不确定的顺序配对", () => {
   assert.equal(result.issues[0].reason, "ambiguous")
 })
 
-test("绑定候选排除无标题内部节点，只保留有标题的顶层脑图", () => {
-  assert.equal(isSelectableMindMapRoot(false, "一元微分"), true)
-  assert.equal(isSelectableMindMapRoot(false, "答案"), true)
-  assert.equal(isSelectableMindMapRoot(false, "  "), false)
-  assert.equal(isSelectableMindMapRoot(true, "普通子卡片"), false)
-  assert.equal(isSelectableMindMapRoot(false, "🐙1000第九章基础22", "source", ["source", "group"]), false)
+test("脑图范围按主脑图和公开 childMindMap API 划分", () => {
+  const childId = "4C82C823-D256-4821-85AE-3FB0D5C4EBEB"
+  const childMindMap = { noteId: childId }
+  const notes = [
+    { noteId: "main-card" },
+    { noteId: childId },
+    { noteId: "child-card-1", childMindMap },
+    { noteId: "child-card-2", childMindMap }
+  ]
+  assert.equal(childMindMapNoteId(notes[0]), "")
+  assert.equal(childMindMapNoteId(notes[2]), childId)
+  assert.deepEqual(collectChildMindMapNoteIds(notes), [childId])
+  assert.equal(mindMapScopeIdForNote(notes[0], [childId]), MAIN_MINDMAP_SCOPE_ID)
+  assert.equal(mindMapScopeIdForNote(notes[1], [childId]), childId)
+  assert.equal(mindMapScopeIdForNote(notes[2], [childId]), childId)
+  assert.equal(noteBelongsToMindMapScope(notes[0], MAIN_MINDMAP_SCOPE_ID, [childId]), true)
+  assert.equal(noteBelongsToMindMapScope(notes[1], MAIN_MINDMAP_SCOPE_ID, [childId]), false)
+  assert.equal(noteBelongsToMindMapScope(notes[2], MAIN_MINDMAP_SCOPE_ID, [childId]), false)
+  assert.equal(noteBelongsToMindMapScope(notes[1], childId), true)
+  assert.equal(noteBelongsToMindMapScope(notes[2], childId), true)
 })
 
 test("父级错题分类包含路径下的全部子级", () => {

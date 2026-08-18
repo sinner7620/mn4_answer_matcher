@@ -34,8 +34,8 @@ import {
 } from "./store"
 import { validateRegexMatchingRules } from "./regex-matching"
 import { loadMatcherSettings, saveMatcherSettings } from "./settings"
-import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
-import { isSelectableMindMapRoot } from "./mindmap-candidate"
+import { mindMapRoot, nodeIdentifier, MAIN_MINDMAP_SCOPE_ID } from "./mindmap-scope"
+import { collectChildMindMapNoteIds, mindMapScopeIdForNote } from "./mindmap-candidate"
 import { buildOrderedPairingForBinding } from "./ordered-pairing"
 import {
   closeAnswerCard,
@@ -151,49 +151,62 @@ function mindMapTitle(node: NodeNote): string {
   return node.title?.trim() || "未命名脑图"
 }
 
+function childMapIdsForNotebook(notebookId: string): string[] {
+  const notebook = MN.db.getNotebookById(notebookId)
+  return notebook ? collectChildMindMapNoteIds(notebook.notes ?? []) : []
+}
+
 function sourceMindMap(
   notebookId = currentNotebookId(),
   question = selectedQuestion()
 ): { notebookId: string; rootNodeId: string; title: string } | undefined {
   if (!notebookId || !question) return undefined
-  const root = mindMapRoot(question)
-  return { notebookId, rootNodeId: nodeIdentifier(root), title: mindMapTitle(root) }
+  const rootNodeId = mindMapScopeIdForNote(question.note, childMapIdsForNotebook(notebookId))
+  if (rootNodeId === MAIN_MINDMAP_SCOPE_ID) return { notebookId, rootNodeId, title: "主脑图" }
+  const rootNote = MN.db.getNoteById(rootNodeId)
+  if (rootNote) {
+    try {
+      return { notebookId, rootNodeId, title: mindMapTitle(new NodeNote(rootNote, notebookId)) }
+    } catch {
+      // Fall through to the selected note title if the child-map root is damaged.
+    }
+  }
+  return { notebookId, rootNodeId, title: question.title?.trim() || "未命名子脑图" }
+}
+
+function sourceMindMapId(notebookId: string, question: NodeNote): string {
+  return sourceMindMap(notebookId, question)?.rootNodeId ?? nodeIdentifier(mindMapRoot(question))
 }
 
 async function mindMapCandidates(notebookId: string): Promise<MindMapCandidate[]> {
-  const candidates: MindMapCandidate[] = []
   const notebook = MN.db.getNotebookById(notebookId)
-  if (!notebook) return candidates
-  const roots = new Map<string, NodeNote>()
-  const notes = notebook.notes ?? []
-  for (let index = 0; index < notes.length; index++) {
-    const note = notes[index]
-    if (note) {
+  if (!notebook) return []
+  const notebookName = notebook.title?.trim() || "未命名学习集"
+  const candidates: MindMapCandidate[] = [{
+    notebookId,
+    rootNodeId: MAIN_MINDMAP_SCOPE_ID,
+    rootTitle: "主脑图",
+    title: `${notebookName} › 主脑图`
+  }]
+  const childMapIds = collectChildMindMapNoteIds(notebook.notes ?? [])
+  for (let index = 0; index < childMapIds.length; index++) {
+    const rootNodeId = childMapIds[index]
+    const rootNote = MN.db.getNoteById(rootNodeId)
+    let rootTitle = "未命名子脑图"
+    if (rootNote) {
       try {
-        const node = new NodeNote(note, notebookId)
-        const realGroupTargetId = note.realGroupNoteIdForTopicId?.(notebookId)
-        if (isSelectableMindMapRoot(
-          Boolean(node.note.parentNote),
-          node.title,
-          note.noteId,
-          [realGroupTargetId, note.groupNoteId]
-        )) {
-          roots.set(nodeIdentifier(node), node)
-        }
+        rootTitle = mindMapTitle(new NodeNote(rootNote, notebookId))
       } catch (error) {
         MN.error(error)
       }
     }
-    if (index % 80 === 79) await delay(0.01)
-  }
-  for (const [rootNodeId, root] of roots) {
-    const rootTitle = mindMapTitle(root)
     candidates.push({
       notebookId,
       rootNodeId,
       rootTitle,
-      title: `${notebook.title?.trim() || "未命名学习集"} › ${rootTitle}`
+      title: `${notebookName} › ${rootTitle}`
     })
+    if (index % 80 === 79) await delay(0.01)
   }
   return candidates
 }
@@ -530,7 +543,6 @@ export async function configureAnswerMatching(): Promise<void> {
     return
   }
   if (!source || !currentTarget.rootNodeId) return showHUD("请先绑定具体答案脑图")
-
   HUDController.show("正在分析两个脑图的父节点与子卡片顺序…")
   await delay(0.05)
   let result: ReturnType<typeof buildOrderedPairingForBinding>
@@ -624,7 +636,7 @@ export async function findCurrentAnswer(): Promise<void> {
   const mistakeContext = mistakeAnswerContext(question, questionNotebookId)
   const lookupQuestion = mistakeContext?.sourceQuestion ?? question
   const bindingSourceNotebookId = mistakeContext?.record.sourceNotebookId ?? questionNotebookId
-  const sourceRootNodeId = nodeIdentifier(mindMapRoot(lookupQuestion))
+  const sourceRootNodeId = sourceMindMapId(bindingSourceNotebookId, lookupQuestion)
   const storedTarget = bindingForSource(bindingSourceNotebookId, sourceRootNodeId) ??
     (mistakeContext?.record.answerNotebookId
       ? {
@@ -769,7 +781,7 @@ export function answerWorkbenchData(): AnswerWorkbenchData {
   const mistakeContext = mistakeAnswerContext(question, questionNotebookId)
   const lookupQuestion = mistakeContext?.sourceQuestion ?? question
   const sourceNotebookId = mistakeContext?.record.sourceNotebookId ?? questionNotebookId
-  const sourceRootNodeId = nodeIdentifier(mindMapRoot(lookupQuestion))
+  const sourceRootNodeId = sourceMindMapId(sourceNotebookId, lookupQuestion)
   const storedTarget = bindingForSource(sourceNotebookId, sourceRootNodeId) ??
     (mistakeContext?.record.answerNotebookId
       ? {

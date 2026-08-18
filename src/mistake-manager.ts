@@ -4,7 +4,7 @@ import { renderCardHtml } from "./card-html"
 import { answerCardHtml } from "./matcher"
 import { findAnswersForQuestion } from "./answer-lookup"
 import { BindingTarget, getBindingForMode, loadBindings, targetForMode } from "./store"
-import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
+import { collectChildMindMapNoteIds, MAIN_MINDMAP_SCOPE_ID, mindMapScopeIdForNote } from "./mindmap-candidate"
 import { loadMatcherSettings, normalizeMistakeReviewCurves, saveMatcherSettings } from "./settings"
 import {
   compareMistakeRecords,
@@ -55,6 +55,16 @@ function pathTitles(question: NodeNote): string[] {
   } catch {
     return []
   }
+}
+
+function sourceMindMapInfo(question: NodeNote, notebookId: string): { rootNodeId: string; rootTitle: string } {
+  const notebook = MN.db.getNotebookById(notebookId)
+  const childMapIds = collectChildMindMapNoteIds(notebook?.notes ?? [])
+  const rootNodeId = mindMapScopeIdForNote(question.note, childMapIds)
+  if (rootNodeId === MAIN_MINDMAP_SCOPE_ID) return { rootNodeId, rootTitle: "主脑图" }
+  const rootNote = MN.db.getNoteById(rootNodeId)
+  const rootTitle = rootNote ? new NodeNote(rootNote, notebookId).title?.trim() || "未命名子脑图" : "未命名子脑图"
+  return { rootNodeId, rootTitle }
 }
 
 function answerBinding(sourceNotebookId: string, sourceRootNodeId: string): BindingTarget | undefined {
@@ -115,15 +125,15 @@ function refreshRecord(record: MistakeRecord): MistakeRecord {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) return record
   const node = new NodeNote(note, record.sourceNotebookId)
-  const root = mindMapRoot(node)
+  const sourceMap = sourceMindMapInfo(node, record.sourceNotebookId)
   const sourcePathTitles = pathTitles(node)
-  const sourceRootNodeId = nodeIdentifier(root)
+  const sourceRootNodeId = sourceMap.rootNodeId
   const binding = answerBinding(record.sourceNotebookId, sourceRootNodeId)
   return {
     ...record,
     sourceNotebookTitle: notebookTitle(record.sourceNotebookId),
     sourceRootNodeId,
-    sourceRootTitle: root.title?.trim() || "未命名题目脑图",
+    sourceRootTitle: sourceMap.rootTitle,
     sourceTitle: node.title?.trim() || record.sourceTitle || "未命名错题",
     sourcePathTitles,
     categoryPath: [notebookTitle(record.sourceNotebookId), ...sourcePathTitles],
@@ -184,8 +194,8 @@ async function recoverMistakesFromSourceTagsInternal(targetNotebookId?: string):
           continue
         }
 
-        const sourceRoot = mindMapRoot(question)
-        const sourceRootNodeId = nodeIdentifier(sourceRoot)
+        const sourceMap = sourceMindMapInfo(question, sourceNotebookId)
+        const sourceRootNodeId = sourceMap.rootNodeId
         const binding = answerBinding(sourceNotebookId, sourceRootNodeId)
         const sourcePathTitles = pathTitles(question)
         const manualCategories = tagState.customTags
@@ -195,7 +205,7 @@ async function recoverMistakesFromSourceTagsInternal(targetNotebookId?: string):
           sourceNotebookId,
           sourceNotebookTitle,
           sourceRootNodeId,
-          sourceRootTitle: sourceRoot.title?.trim() || "未命名题目脑图",
+          sourceRootTitle: sourceMap.rootTitle,
           sourceTitle: question.title?.trim() || "未命名错题",
           sourcePathTitles,
           categoryPath: [sourceNotebookTitle, ...sourcePathTitles],
@@ -256,15 +266,15 @@ export async function markQuestionAsMistake(
   const state = loadMistakeState()
   const previous = recordForSource(state, sourceNotebookId, sourceNoteId)
   const now = new Date()
-  const sourceRoot = mindMapRoot(question)
-  const sourceRootNodeId = nodeIdentifier(sourceRoot)
+  const sourceMap = sourceMindMapInfo(question, sourceNotebookId)
+  const sourceRootNodeId = sourceMap.rootNodeId
   const binding = answerBinding(sourceNotebookId, sourceRootNodeId)
   const metadata = {
     sourceNoteId,
     sourceNotebookId,
     sourceNotebookTitle: notebookTitle(sourceNotebookId),
     sourceRootNodeId,
-    sourceRootTitle: sourceRoot.title?.trim() || "未命名题目脑图",
+    sourceRootTitle: sourceMap.rootTitle,
     sourceTitle: question.title?.trim() || "未命名错题",
     sourcePathTitles: pathTitles(question),
     categoryPath: [notebookTitle(sourceNotebookId), ...pathTitles(question)],
@@ -317,15 +327,15 @@ export async function markQuestionsAsMistakes(
 
       const previous = recordForSource(state, sourceNotebookId, sourceNoteId)
       const now = new Date()
-      const sourceRoot = mindMapRoot(question)
-      const sourceRootNodeId = nodeIdentifier(sourceRoot)
+      const sourceMap = sourceMindMapInfo(question, sourceNotebookId)
+      const sourceRootNodeId = sourceMap.rootNodeId
       const binding = answerBinding(sourceNotebookId, sourceRootNodeId)
       const metadata = {
         sourceNoteId,
         sourceNotebookId,
         sourceNotebookTitle: notebookTitle(sourceNotebookId),
         sourceRootNodeId,
-        sourceRootTitle: sourceRoot.title?.trim() || "未命名题目脑图",
+        sourceRootTitle: sourceMap.rootTitle,
         sourceTitle: question.title?.trim() || "未命名错题",
         sourcePathTitles: pathTitles(question),
         categoryPath: [notebookTitle(sourceNotebookId), ...pathTitles(question)],
@@ -691,7 +701,7 @@ export function mistakeDetailById(recordId: string): MistakeDetailData {
   const note = MN.db.getNoteById(record.sourceNoteId)
   if (!note) throw new Error("原题卡片不存在或尚未同步")
   const node = new NodeNote(note, record.sourceNotebookId)
-  const binding = answerBinding(record.sourceNotebookId, nodeIdentifier(mindMapRoot(node)))
+  const binding = answerBinding(record.sourceNotebookId, sourceMindMapInfo(node, record.sourceNotebookId).rootNodeId)
   const answerTarget = binding ?? (record.answerNotebookId
     ? { notebookId: record.answerNotebookId, rootNodeId: record.answerRootNodeId }
     : undefined)
