@@ -1,0 +1,28 @@
+name: Withdraw accidental Gitee beta release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  withdraw:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the accidentally published Gitee release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          node - <<'NODE'
+          const base = "https://gitee.com/api/v5/repos/baidreams/CardLink"
+          const token = process.env.GITEE_TOKEN
+          if (!token) throw new Error("GITEE_TOKEN 未配置")
+          const list = await fetch(`${base}/releases?per_page=100&access_token=${encodeURIComponent(token)}`)
+          if (!list.ok) throw new Error(`读取 Gitee Release 失败 (${list.status})`)
+          const release = (await list.json()).find(item => item.tag_name === "v2.3.3-beta.1")
+          if (!release) {
+            console.log("Gitee Release 已不存在，无需删除")
+            process.exit(0)
+          }
+          const deleted = await fetch(`${base}/releases/${release.id}?access_token=${encodeURIComponent(token)}`, { method: "DELETE" })
+          if (!deleted.ok) throw new Error(`删除 Gitee Release 失败 (${deleted.status}): ${await deleted.text()}`)
+          console.log("已删除 Gitee Release v2.3.3-beta.1")
+          NODE
