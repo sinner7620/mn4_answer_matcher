@@ -10,7 +10,7 @@ import {
   select,
   showHUD
 } from "marginnote"
-import { pathMatchScore } from "./domain"
+import { excludeAnswerNoteId, pathMatchScore } from "./domain"
 import { createAnswerToolbar, hideAnswerToolbar, showAnswerToolbar } from "./floating-toolbar"
 import {
   answerCardHtml,
@@ -477,7 +477,9 @@ export async function findCurrentAnswer(): Promise<void> {
     questionPath = []
   }
 
-  const matches = findAnswers(answerTarget, questionTitles, questionPath)
+  const rawMatches = findAnswers(answerTarget, questionTitles, questionPath)
+  const questionNoteId = String(question.note?.noteId ?? "").trim()
+  const matches = excludeAnswerNoteId(rawMatches, questionNoteId)
   if (!matches.length) return showHUD(`未找到同标题答案：${questionTitle}`, 3)
   const answer = await chooseMatch(matches, questionPath)
   if (answer) await showAnswer(questionTitle, answer)
@@ -576,6 +578,7 @@ export async function openMenu(): Promise<void> {
       scoped ? "绑定/更换具体答案脑图" : "绑定/更换答案学习集",
       "刷新答案索引",
       `同学习集脑图绑定：${scoped ? "已开启" : "已关闭"}`,
+      `答案窗口关闭按钮：${loadMatcherSettings().answerCardCloseButtonSide === "left" ? "左上角" : "右上角"}`,
       "检查插件更新",
       "解除当前绑定"
     ],
@@ -591,10 +594,15 @@ export async function openMenu(): Promise<void> {
     showHUD(!scoped ? "已开启：可绑定同学习集内的具体脑图" : "已关闭：恢复按整个答案学习集匹配", 4)
   }
   else if (result.index === 4) {
+    const side = loadMatcherSettings().answerCardCloseButtonSide === "left" ? "right" : "left"
+    saveMatcherSettings({ answerCardCloseButtonSide: side })
+    showHUD(`答案窗口关闭按钮已切换到${side === "left" ? "左上角" : "右上角"}`, 3)
+  }
+  else if (result.index === 5) {
     const updateResult = await checkForUpdates(true)
     if (updateResult === "back") await openMenu()
   }
-  else if (result.index === 5) await runSafely(unbindCurrent)
+  else if (result.index === 6) await runSafely(unbindCurrent)
 }
 
 export const lifecycle = defineLifecycleHandlers({

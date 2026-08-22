@@ -10,6 +10,8 @@
 
 插件只发送 `schema`、随机 `install_id`、插件 `version` 和 `channel`。正式版和 Beta 使用相同的本地键保存安装 ID；切换版本或渠道不会新增安装实例。上报最多每 12 小时一次，仅 HTTP 204 后更新时间，8 秒超时或任何失败都静默，不影响更新检查或插件功能。
 
+插件支持腾讯 CloudBase 国内中转作为主地址，Cloudflare `/ping` 作为备用地址。部署和构建说明见 [CLOUDBASE_RELAY_DEPLOYMENT.md](CLOUDBASE_RELAY_DEPLOYMENT.md)。未在构建时注入 `TELEMETRY_RELAY_ENDPOINT` 的安装包会继续只使用 Cloudflare。
+
 ## 在 Cloudflare 控制台查询
 
 登录 Cloudflare Dashboard，进入 **Storage & databases → D1 SQL database → mnrails-telemetry-db → Console**，粘贴下方 SQL 并执行。

@@ -40,3 +40,5 @@ pnpm build
 ```
 
 构建产物包括可安装的 `.mnaddon` 和便于检查的解包目录。
+
+腾讯 CloudBase 匿名统计中转的代码、配置和验收步骤见 [CLOUDBASE_RELAY_DEPLOYMENT.md](CLOUDBASE_RELAY_DEPLOYMENT.md)。

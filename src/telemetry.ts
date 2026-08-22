@@ -1,4 +1,5 @@
-export const TELEMETRY_ENDPOINT = "https://mnrails-telemetry.mr-wuyzhn.workers.dev/ping"
+export const TELEMETRY_EU_ENDPOINT = "https://cardlink.cn.eu.org/ping"
+export const TELEMETRY_FALLBACK_ENDPOINT = "https://mnrails-telemetry.mr-wuyzhn.workers.dev/ping"
 export const TELEMETRY_INTERVAL = 12 * 60 * 60 * 1000
 
 const INSTALL_ID_KEY = "marginnote.extension.mn4-answer-matcher.telemetry.install-id"
@@ -60,10 +61,10 @@ function rememberSuccess(timestamp: number): void {
   }
 }
 
-function postTelemetry(id: string): Promise<boolean> {
+function postTelemetryTo(endpoint: string, id: string): Promise<boolean> {
   return new Promise(resolve => {
     try {
-      const request = NSMutableURLRequest.requestWithURL(NSURL.URLWithString(TELEMETRY_ENDPOINT))
+      const request = NSMutableURLRequest.requestWithURL(NSURL.URLWithString(endpoint))
       request.setHTTPMethod("POST")
       request.setTimeoutInterval(REQUEST_TIMEOUT_SECONDS)
       request.setValueForHTTPHeaderField("application/json", "Content-Type")
@@ -84,6 +85,13 @@ function postTelemetry(id: string): Promise<boolean> {
       resolve(false)
     }
   })
+}
+
+async function postTelemetry(id: string): Promise<boolean> {
+  for (const endpoint of [TELEMETRY_EU_ENDPOINT, TELEMETRY_FALLBACK_ENDPOINT]) {
+    if (await postTelemetryTo(endpoint, id)) return true
+  }
+  return false
 }
 
 export async function reportTelemetryIfDue(now = Date.now()): Promise<void> {

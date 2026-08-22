@@ -5,6 +5,10 @@ import path from "node:path"
 
 const root = process.cwd()
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"))
+const telemetryRelayEndpoint = String(process.env.TELEMETRY_RELAY_ENDPOINT || "").trim()
+if (telemetryRelayEndpoint && !/^https:\/\/[^\s/]+(?:\/[^\s]*)?$/.test(telemetryRelayEndpoint)) {
+  throw new Error("TELEMETRY_RELAY_ENDPOINT 必须是有效的 HTTPS 地址")
+}
 const repository = packageJson.repository?.url
   ?.replace(/^https:\/\/github\.com\//, "")
   .replace(/\.git$/, "")
@@ -30,7 +34,8 @@ await build({
   target: "safari13",
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
-    __GITHUB_REPOSITORY__: JSON.stringify(repository)
+    __GITHUB_REPOSITORY__: JSON.stringify(repository),
+    __TELEMETRY_RELAY_ENDPOINT__: JSON.stringify(telemetryRelayEndpoint)
   },
   banner: { js: "try {" },
   footer: {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   buildIndex,
+  excludeAnswerNoteId,
   extractAnswer,
   normalizeTitle,
   pathMatchScore,
@@ -110,6 +111,14 @@ test("标准答案标签排在普通匹配前", () => {
   assert.equal(rankAnswers(answers)[0], answers[1])
 })
 
+test("答案候选会排除当前题目卡片自身", () => {
+  const question = { noteId: "question" }
+  const answer = { noteId: "answer" }
+  const candidates = [question, answer]
+  assert.deepEqual(excludeAnswerNoteId(candidates, "question"), [answer])
+  assert.deepEqual(excludeAnswerNoteId(candidates, ""), candidates)
+})
+
 test("答案按评论、摘录、子卡片的优先级回退", () => {
   const base = { id: "1", titles: ["题"], tags: [], comments: [], excerpts: [], children: [] }
   assert.equal(extractAnswer({ ...base, comments: ["评论"], excerpts: ["摘录"] }), "评论")
@@ -147,6 +156,8 @@ test("完整卡片 HTML 包含图片摘录、图片评论和子卡片", () => {
   const html = renderCardHtml(note, "问题", () => undefined, hash => `base64-${hash}`)
   assert.match(html, /base64-excerpt-image/)
   assert.match(html, /base64-comment-image/)
+  assert.match(html, /document\.documentElement\.dataset\.previewScale/)
+  assert.match(html, /maximum-scale=3,user-scalable=yes/)
   assert.match(html, /子卡片内容/)
   assert.doesNotMatch(html, /OCR 文本/)
 })
