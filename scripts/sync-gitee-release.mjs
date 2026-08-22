@@ -68,7 +68,7 @@ if (Array.isArray(list)) {
     const updateResp = await fetch(`${api}/releases/${existing.id}?access_token=${token}`, {
       method: "PATCH",
       headers: jsonHeaders,
-      body: JSON.stringify({ name: `CardLink ${tag}`, body, prerelease: tag.includes("-") })
+      body: JSON.stringify({ tag_name: tag, name: `CardLink ${tag}`, body, prerelease: tag.includes("-") })
     })
     if (!updateResp.ok) throw new Error(`更新 Gitee release 说明失败 (${updateResp.status})`)
     console.log(`UPDATE: Gitee release ${tag} 已更新说明 (id=${existing.id})`)
