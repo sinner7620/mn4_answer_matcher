@@ -44,6 +44,15 @@ export function rankAnswers<T extends Pick<AnswerLike, "tags">>(answers: T[]): T
   })
 }
 
+export function excludeAnswerNoteId<T extends { noteId?: string }>(
+  answers: T[],
+  excludedNoteId: string
+): T[] {
+  const target = excludedNoteId.trim()
+  if (!target) return [...answers]
+  return answers.filter(answer => String(answer.noteId ?? "").trim() !== target)
+}
+
 export function pathMatchScore(questionPath: string[], answerPath: string[]): number {
   const question = questionPath.map(normalizeTitle).filter(Boolean)
   const answer = answerPath.map(normalizeTitle).filter(Boolean)

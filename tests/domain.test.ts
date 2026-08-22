@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   buildIndex,
+  excludeAnswerNoteId,
   extractAnswer,
   normalizeTitle,
   pathMatchScore,
@@ -19,7 +20,14 @@ import {
   setBinding,
   targetForMode
 } from "../src/binding"
-import { isSelectableMindMapRoot } from "../src/mindmap-candidate"
+import {
+  MAIN_MINDMAP_SCOPE_ID,
+  childMindMapNoteId,
+  collectChildMindMapNoteIds,
+  isSelectableMindMapRoot,
+  mindMapScopeIdForNote,
+  noteBelongsToMindMapScope
+} from "../src/mindmap-candidate"
 
 test("同一学习集中的不同脑图可保存独立答案绑定并兼容旧绑定", () => {
   const bindings: any = { questions: "legacy-answers" }
@@ -65,6 +73,28 @@ test("绑定候选排除无标题内部节点，只保留有标题的顶层脑�
   assert.equal(isSelectableMindMapRoot(false, "🐙1000第九章基础22", "source", ["source", "group"]), false)
 })
 
+test("脑图范围按主脑图和公开 childMindMap API 划分", () => {
+  const childId = "4C82C823-D256-4821-85AE-3FB0D5C4EBEB"
+  const childMindMap = { noteId: childId }
+  const notes = [
+    { noteId: "main-card" },
+    { noteId: childId },
+    { noteId: "child-card-1", childMindMap },
+    { noteId: "child-card-2", childMindMap }
+  ]
+  assert.equal(childMindMapNoteId(notes[0]), "")
+  assert.equal(childMindMapNoteId(notes[2]), childId)
+  assert.deepEqual(collectChildMindMapNoteIds(notes), [childId])
+  assert.equal(mindMapScopeIdForNote(notes[0], [childId]), MAIN_MINDMAP_SCOPE_ID)
+  assert.equal(mindMapScopeIdForNote(notes[1], [childId]), childId)
+  assert.equal(mindMapScopeIdForNote(notes[2], [childId]), childId)
+  assert.equal(noteBelongsToMindMapScope(notes[0], MAIN_MINDMAP_SCOPE_ID, [childId]), true)
+  assert.equal(noteBelongsToMindMapScope(notes[1], MAIN_MINDMAP_SCOPE_ID, [childId]), false)
+  assert.equal(noteBelongsToMindMapScope(notes[2], MAIN_MINDMAP_SCOPE_ID, [childId]), false)
+  assert.equal(noteBelongsToMindMapScope(notes[1], childId), true)
+  assert.equal(noteBelongsToMindMapScope(notes[2], childId), true)
+})
+
 test("标题标准化忽略全半角、空白、常见中英文标点和大小写", () => {
   assert.equal(normalizeTitle(" Ａbc ？\n"), "abc")
   assert.equal(normalizeTitle("什么是 FFT："), normalizeTitle("什么是fft?"))
@@ -79,6 +109,14 @@ test("索引同一卡片的重复标题只收录一次", () => {
 test("标准答案标签排在普通匹配前", () => {
   const answers = [{ tags: [] }, { tags: ["标准答案"] }]
   assert.equal(rankAnswers(answers)[0], answers[1])
+})
+
+test("答案候选会排除当前题目卡片自身", () => {
+  const question = { noteId: "question" }
+  const answer = { noteId: "answer" }
+  const candidates = [question, answer]
+  assert.deepEqual(excludeAnswerNoteId(candidates, "question"), [answer])
+  assert.deepEqual(excludeAnswerNoteId(candidates, ""), candidates)
 })
 
 test("答案按评论、摘录、子卡片的优先级回退", () => {
@@ -118,6 +156,8 @@ test("完整卡片 HTML 包含图片摘录、图片评论和子卡片", () => {
   const html = renderCardHtml(note, "问题", () => undefined, hash => `base64-${hash}`)
   assert.match(html, /base64-excerpt-image/)
   assert.match(html, /base64-comment-image/)
+  assert.match(html, /document\.documentElement\.dataset\.previewScale/)
+  assert.match(html, /maximum-scale=3,user-scalable=yes/)
   assert.match(html, /子卡片内容/)
   assert.doesNotMatch(html, /OCR 文本/)
 })

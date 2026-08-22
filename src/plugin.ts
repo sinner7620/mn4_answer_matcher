@@ -10,7 +10,7 @@ import {
   select,
   showHUD
 } from "marginnote"
-import { pathMatchScore } from "./domain"
+import { excludeAnswerNoteId, pathMatchScore } from "./domain"
 import { createAnswerToolbar, hideAnswerToolbar, showAnswerToolbar } from "./floating-toolbar"
 import {
   answerCardHtml,
@@ -32,8 +32,8 @@ import {
   targetForMode
 } from "./store"
 import { loadMatcherSettings, saveMatcherSettings } from "./settings"
-import { mindMapRoot, nodeIdentifier } from "./mindmap-scope"
-import { isSelectableMindMapRoot } from "./mindmap-candidate"
+import { mindMapRoot, nodeIdentifier, MAIN_MINDMAP_SCOPE_ID } from "./mindmap-scope"
+import { collectChildMindMapNoteIds, isSelectableMindMapRoot, mindMapScopeIdForNote } from "./mindmap-candidate"
 import {
   closeAnswerCard,
   onAnswerCardPan,
@@ -41,6 +41,7 @@ import {
   showAnswerCard
 } from "./answer-card-view"
 import { checkForUpdates, scheduleAutomaticUpdateCheck } from "./updater"
+import { scheduleTelemetryReport } from "./telemetry"
 import {
   chooseNotebook,
   closeNotebookPicker,
@@ -67,6 +68,47 @@ function selectedQuestion(): NodeNote | undefined {
   return focus ? new NodeNote(focus) : undefined
 }
 
+function parsePopupWinRect(value: unknown): { x: number; y: number; width: number; height: number } | undefined {
+  if (typeof value !== "string") return
+  try {
+    const values = JSON.parse(`[${value.replace(/[{}]/g, "")}]`) as number[]
+    if (values.length !== 4 || values.some(item => !Number.isFinite(item))) return
+    return { x: values[0], y: values[1], width: values[2], height: values[3] }
+  } catch {
+    return
+  }
+}
+
+function samePopupTarget(
+  expected: { x: number; y: number; width: number; height: number } | undefined,
+  actual: { x: number; y: number; width: number; height: number } | undefined
+): boolean {
+  if (!expected || !actual) return false
+  const tolerance = 2
+  return Math.abs(expected.x - actual.x) <= tolerance &&
+    Math.abs(expected.y - actual.y) <= tolerance &&
+    Math.abs(expected.width - actual.width) <= tolerance &&
+    Math.abs(expected.height - actual.height) <= tolerance
+}
+
+function isCurrentNotePopupStillVisible(): boolean {
+  try {
+    const menu = PopupMenu.currentMenu()
+    if (!menu?.visible) return false
+
+    const expectedTarget = self.answerToolbarTargetRect as
+      | { x: number; y: number; width: number; height: number }
+      | undefined
+    if (samePopupTarget(expectedTarget, menu.targetWinRect)) return true
+
+    const focus = MN.notebookController?.visibleFocusNote ?? MN.notebookController?.focusNote
+    const focusNoteId = focus?.noteId
+    return Boolean(focusNoteId && self.answerToolbarNoteId && focusNoteId === self.answerToolbarNoteId)
+  } catch {
+    return false
+  }
+}
+
 interface MindMapCandidate extends BindingTarget {
   title: string
 }
@@ -75,12 +117,33 @@ function mindMapTitle(node: NodeNote): string {
   return node.title?.trim() || "未命名脑图"
 }
 
-function sourceMindMap(): { notebookId: string; rootNodeId: string; title: string } | undefined {
-  const notebookId = currentNotebookId()
-  const question = selectedQuestion()
+function childMapIdsForNotebook(notebookId: string): string[] {
+  const notebook = MN.db.getNotebookById(notebookId)
+  return notebook ? collectChildMindMapNoteIds(notebook.notes ?? []) : []
+}
+
+function sourceMindMap(
+  notebookId = currentNotebookId(),
+  question = selectedQuestion()
+): { notebookId: string; rootNodeId: string; title: string } | undefined {
+
+
   if (!notebookId || !question) return undefined
-  const root = mindMapRoot(question)
-  return { notebookId, rootNodeId: nodeIdentifier(root), title: mindMapTitle(root) }
+  const rootNodeId = mindMapScopeIdForNote(question.note, childMapIdsForNotebook(notebookId))
+  if (rootNodeId === MAIN_MINDMAP_SCOPE_ID) return { notebookId, rootNodeId, title: "主脑图" }
+  const rootNote = MN.db.getNoteById(rootNodeId)
+  if (rootNote) {
+    try {
+      return { notebookId, rootNodeId, title: mindMapTitle(new NodeNote(rootNote, notebookId)) }
+    } catch {
+      // Fall through to the selected note title if the child-map root is damaged.
+    }
+  }
+  return { notebookId, rootNodeId, title: question.title?.trim() || "未命名子脑图" }
+}
+
+function sourceMindMapId(notebookId: string, question: NodeNote): string {
+  return sourceMindMap(notebookId, question)?.rootNodeId ?? nodeIdentifier(mindMapRoot(question))
 }
 
 async function mindMapCandidates(notebookId: string): Promise<MindMapCandidate[]> {
@@ -117,6 +180,39 @@ async function mindMapCandidates(notebookId: string): Promise<MindMapCandidate[]
       rootTitle,
       title: `${notebook.title?.trim() || "未命名学习集"} › ${rootTitle}`
     })
+  }
+  return candidates
+}
+
+async function mindMapCandidatesByScope(notebookId: string): Promise<MindMapCandidate[]> {
+  const notebook = MN.db.getNotebookById(notebookId)
+  if (!notebook) return []
+  const notebookName = notebook.title?.trim() || "未命名学习集"
+  const candidates: MindMapCandidate[] = [{
+    notebookId,
+    rootNodeId: MAIN_MINDMAP_SCOPE_ID,
+    rootTitle: "主脑图",
+    title: `${notebookName} › 主脑图`
+  }]
+  const childMapIds = collectChildMindMapNoteIds(notebook.notes ?? [])
+  for (let index = 0; index < childMapIds.length; index++) {
+    const rootNodeId = childMapIds[index]
+    const rootNote = MN.db.getNoteById(rootNodeId)
+    let rootTitle = "未命名子脑图"
+    if (rootNote) {
+      try {
+        rootTitle = mindMapTitle(new NodeNote(rootNote, notebookId))
+      } catch (error) {
+        MN.error(error)
+      }
+    }
+    candidates.push({
+      notebookId,
+      rootNodeId,
+      rootTitle,
+      title: `${notebookName} › ${rootTitle}`
+    })
+    if (index % 80 === 79) await delay(0.01)
   }
   return candidates
 }
@@ -237,7 +333,7 @@ async function bindAnswerNotebook(): Promise<void> {
   await delay(0.05)
   let scanned: MindMapCandidate[]
   try {
-    scanned = await mindMapCandidates(targetNotebookId)
+    scanned = await mindMapCandidatesByScope(targetNotebookId)
   } finally {
     HUDController.hidden()
   }
@@ -342,11 +438,12 @@ export { onAnswerCardPan, onAnswerCardResize }
 export { onNotebookPickerAction }
 
 export async function findCurrentAnswer(): Promise<void> {
+  const question = selectedQuestion()
   const questionNotebookId = currentNotebookId()
   if (!questionNotebookId) return showHUD("请先打开题目脑图")
-  const question = selectedQuestion()
+
   if (!question) return showHUD("请先选中一张题目卡片")
-  const sourceRootNodeId = nodeIdentifier(mindMapRoot(question))
+  const sourceRootNodeId = sourceMindMapId(questionNotebookId, question)
   const storedTarget = bindingForSource(questionNotebookId, sourceRootNodeId)
   const answerTarget = storedTarget && effectiveAnswerTarget(storedTarget)
   if (!answerTarget) {
@@ -380,7 +477,9 @@ export async function findCurrentAnswer(): Promise<void> {
     questionPath = []
   }
 
-  const matches = findAnswers(answerTarget, questionTitles, questionPath)
+  const rawMatches = findAnswers(answerTarget, questionTitles, questionPath)
+  const questionNoteId = String(question.note?.noteId ?? "").trim()
+  const matches = excludeAnswerNoteId(rawMatches, questionNoteId)
   if (!matches.length) return showHUD(`未找到同标题答案：${questionTitle}`, 3)
   const answer = await chooseMatch(matches, questionPath)
   if (answer) await showAnswer(questionTitle, answer)
@@ -479,6 +578,7 @@ export async function openMenu(): Promise<void> {
       scoped ? "绑定/更换具体答案脑图" : "绑定/更换答案学习集",
       "刷新答案索引",
       `同学习集脑图绑定：${scoped ? "已开启" : "已关闭"}`,
+      `答案窗口关闭按钮：${loadMatcherSettings().answerCardCloseButtonSide === "left" ? "左上角" : "右上角"}`,
       "检查插件更新",
       "解除当前绑定"
     ],
@@ -494,10 +594,15 @@ export async function openMenu(): Promise<void> {
     showHUD(!scoped ? "已开启：可绑定同学习集内的具体脑图" : "已关闭：恢复按整个答案学习集匹配", 4)
   }
   else if (result.index === 4) {
+    const side = loadMatcherSettings().answerCardCloseButtonSide === "left" ? "right" : "left"
+    saveMatcherSettings({ answerCardCloseButtonSide: side })
+    showHUD(`答案窗口关闭按钮已切换到${side === "left" ? "左上角" : "右上角"}`, 3)
+  }
+  else if (result.index === 5) {
     const updateResult = await checkForUpdates(true)
     if (updateResult === "back") await openMenu()
   }
-  else if (result.index === 5) await runSafely(unbindCurrent)
+  else if (result.index === 6) await runSafely(unbindCurrent)
 }
 
 export const lifecycle = defineLifecycleHandlers({
@@ -506,9 +611,13 @@ export const lifecycle = defineLifecycleHandlers({
       self.addon = { key: "mn4-answer-matcher", title: "答案匹配" }
       self.lastClickedNote = undefined
       self.answerToolbar = createAnswerToolbar()
+      self.answerToolbarShownAt = 0
+      self.answerToolbarNoteId = undefined
+      self.answerToolbarTargetRect = undefined
       eventObservers.remove()
       eventObservers.add()
       scheduleAutomaticUpdateCheck()
+      scheduleTelemetryReport()
     },
     notebookWillOpen(notebookId: string) {
       eventObservers.remove()
@@ -517,6 +626,8 @@ export const lifecycle = defineLifecycleHandlers({
     notebookWillClose() {
       eventObservers.remove()
       self.lastClickedNote = undefined
+      self.answerToolbarNoteId = undefined
+      self.answerToolbarTargetRect = undefined
       hideAnswerToolbar()
       closeAnswerCard()
       closeNotebookPicker()
@@ -531,6 +642,7 @@ export const lifecycle = defineLifecycleHandlers({
   classMethods: {
     applicationWillEnterForeground() {
       scheduleAutomaticUpdateCheck()
+      scheduleTelemetryReport()
     },
     addonWillDisconnect() {
       clearIndex()
@@ -541,23 +653,21 @@ export const lifecycle = defineLifecycleHandlers({
 export const handlers = defineEventHandlers<(typeof events)[number]>({
   onPopupMenuOnNote(sender) {
     if (self.window !== MN.currentWindow) return
-    self.lastClickedNote = sender.userInfo?.note
-    showAnswerToolbar((sender.userInfo as any).winRect)
+    const note = sender.userInfo?.note
+    const winRect = (sender.userInfo as any).winRect
+    self.lastClickedNote = note
+    self.answerToolbarNoteId = note?.noteId
+    self.answerToolbarTargetRect = parsePopupWinRect(winRect)
+    showAnswerToolbar(winRect)
   },
   async onClosePopupMenuOnNote() {
     if (self.window !== MN.currentWindow) return
-    // The close event of a previously opened card can arrive after the next
-    // card's open event (A→B switching), so a timestamp comparison cannot tell
-    // an old close from the current one. Let the selection state settle, then
-    // only hide when no card is selected anymore — i.e. the user really tapped
-    // empty canvas space. While the current card stays selected, the toolbar
-    // must keep following it instead of flashing away.
+    const shownAt = self.answerToolbarShownAt
     await delay(0.15)
-    try {
-      if (NodeNote.getSelectedNodes().length > 0) return
-    } catch {
-      // Selection state unavailable; fall back to hiding the toolbar.
-    }
+    if (shownAt !== self.answerToolbarShownAt) return
+    if (isCurrentNotePopupStillVisible()) return
+    self.answerToolbarNoteId = undefined
+    self.answerToolbarTargetRect = undefined
     hideAnswerToolbar()
   }
 })

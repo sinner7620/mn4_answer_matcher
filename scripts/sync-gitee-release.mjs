@@ -17,6 +17,7 @@ import path from "node:path"
 const token = process.env.GITEE_TOKEN
 const repo = process.env.GITEE_REPO || "baidreams/CardLink"
 const tag = process.env.RELEASE_TAG
+const notesFile = process.env.RELEASE_NOTES_FILE || `RELEASE_NOTES_${tag}.md`
 
 if (!token) {
   console.log("SKIP: GITEE_TOKEN 未配置，跳过 Gitee 同步")
@@ -48,13 +49,29 @@ async function findArtifact() {
   throw new Error(`找不到构建产物 ${exact}；dist 现有文件：${files.join(", ") || "(空)"}`)
 }
 
+async function releaseBody() {
+  try {
+    return await readFile(path.join(process.cwd(), notesFile), "utf8")
+  } catch {
+    return "MN4 跨脑图答案匹配插件安装包"
+  }
+}
+
+const body = await releaseBody()
+
 // 1) 幂等检查：同名 release 已存在则跳过
 const listResp = await fetch(`${api}/releases?per_page=100&access_token=${token}`)
 const list = await listResp.json().catch(() => null)
 if (Array.isArray(list)) {
   const existing = list.find((r) => r.tag_name === tag)
   if (existing) {
-    console.log(`SKIP: Gitee release ${tag} 已存在 (id=${existing.id})`)
+    const updateResp = await fetch(`${api}/releases/${existing.id}?access_token=${token}`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ tag_name: tag, name: `CardLink ${tag}`, body, prerelease: tag.includes("-") })
+    })
+    if (!updateResp.ok) throw new Error(`更新 Gitee release 说明失败 (${updateResp.status})`)
+    console.log(`UPDATE: Gitee release ${tag} 已更新说明 (id=${existing.id})`)
     process.exit(0)
   }
 } else {
@@ -70,12 +87,7 @@ const createResp = await fetch(`${api}/releases?access_token=${token}`, {
     tag_name: tag,
     target_commitish: "main",
     name: `CardLink ${tag}`,
-    body: [
-      "MN4 跨脑图答案匹配插件安装包",
-      "",
-      "由 GitHub Release 自动同步（Gitee 为发布镜像，不含源代码）。",
-      "源码与完整发行说明见 GitHub：https://github.com/sinner7620/mn4_answer_matcher",
-    ].join("\n"),
+    body,
     prerelease,
   }),
 })

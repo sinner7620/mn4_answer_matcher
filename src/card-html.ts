@@ -140,6 +140,10 @@ function noteBody(
   return blocks.join("")
 }
 
+// Keep answer-card zoom behavior aligned with the Beta question preview: the
+// content scales around the two-finger focus point and remains scrollable.
+const cardPinchZoomScript = String.raw`(function(){var card=document.querySelector(".card");if(!card)return;var baseWidth=Math.max(1,Math.ceil(card.getBoundingClientRect().width)),baseHeight=Math.max(1,Math.ceil(card.scrollHeight)),scale=1,startScale=1,startDistance=0,focusX=0,focusY=0;card.style.width=baseWidth+"px";card.style.maxWidth="none";card.style.transformOrigin="0 0";card.style.willChange="transform";document.documentElement.style.overflow="auto";document.body.style.overflow="visible";function distance(t){return Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY)}function midpoint(t){return{x:(t[0].clientX+t[1].clientX)/2,y:(t[0].clientY+t[1].clientY)/2}}function remember(point){focusX=(window.scrollX+point.x)/scale;focusY=(window.scrollY+point.y)/scale}function apply(value,point){scale=Math.max(1,Math.min(3,value));card.style.transform="scale("+scale+")";document.body.style.width=Math.ceil(baseWidth*scale)+"px";document.body.style.height=Math.ceil(baseHeight*scale)+"px";document.documentElement.dataset.previewScale=scale.toFixed(2);if(point)window.scrollTo(Math.max(0,focusX*scale-point.x),Math.max(0,focusY*scale-point.y))}document.addEventListener("touchstart",function(event){if(event.touches.length!==2)return;var point=midpoint(event.touches);startDistance=distance(event.touches);startScale=scale;remember(point)},{passive:true});document.addEventListener("touchmove",function(event){if(event.touches.length!==2||!startDistance)return;event.preventDefault();var point=midpoint(event.touches);apply(startScale*distance(event.touches)/startDistance,point)},{passive:false});document.addEventListener("touchend",function(event){if(event.touches.length<2)startDistance=0},{passive:true});document.addEventListener("gesturestart",function(event){var point={x:Number(event.clientX||innerWidth/2),y:Number(event.clientY||innerHeight/2)};startScale=scale;remember(point);event.preventDefault()},{passive:false});document.addEventListener("gesturechange",function(event){var point={x:Number(event.clientX||innerWidth/2),y:Number(event.clientY||innerHeight/2)};event.preventDefault();apply(startScale*Number(event.scale||1),point)},{passive:false});apply(1)})();`
+
 export function renderCardHtml(
   note: any,
   questionTitle: string,
@@ -164,11 +168,11 @@ export function renderCardHtml(
     .join("")
 
   return `<!doctype html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3,user-scalable=yes">
 <style>
 :root{color-scheme:light dark}*{box-sizing:border-box}html,body{margin:0;padding:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#202124}body{padding:0}.card{min-height:100vh;background:#fff;padding:54px 22px 34px}.eyebrow{font-size:12px;color:#6b7280;margin-bottom:6px}.card h1{font-size:22px;line-height:1.35;margin:0 44px 18px 0}.text-block,.html-block{font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin:12px 0;padding:12px 14px;background:#f5f7fb;border-radius:9px}.html-block{white-space:normal}figure{margin:14px 0;text-align:center}img,canvas[data-drawing]{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}canvas[data-drawing]{width:100%;background:#fff}.paint-note{position:relative;display:block}.paint-note img{width:100%;height:auto}.paint-note canvas[data-drawing]{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;pointer-events:none}.missing-image{padding:28px;text-align:center;color:#9b1c1c;background:#fff1f1;border-radius:8px}.child{margin-top:20px;padding-top:16px;border-top:1px solid #d9dde7}.child h2{font-size:17px;margin:0 0 10px}
 @media(prefers-color-scheme:dark){html,body{color:#f3f4f6}.card{background:#202124}.text-block,.html-block{background:#303236}.eyebrow{color:#aeb4bf}.child{border-color:#45484f}}
 </style></head><body><article class="card"><div class="eyebrow">${escapeHtml(
     questionTitle
-  )}</div><h1>${escapeHtml(answerTitle)}</h1>${main}${children}</article><script>${pkDrawingRendererScript}</script></body></html>`
+  )}</div><h1>${escapeHtml(answerTitle)}</h1>${main}${children}</article><script>${pkDrawingRendererScript}</script><script>${cardPinchZoomScript}</script></body></html>`
 }
