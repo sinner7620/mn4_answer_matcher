@@ -23,7 +23,7 @@ jobs:
           const update = await fetch(`${base}/releases/${release.id}?access_token=${encodeURIComponent(token)}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json;charset=UTF-8" },
-            body: JSON.stringify({ name: "CardLink v1.9.12", body, prerelease: false })
+            body: JSON.stringify({ tag_name: "v1.9.12", name: "CardLink v1.9.12", body, prerelease: false })
           })
           if (!update.ok) throw new Error(`更新 Gitee Release 失败 (${update.status}): ${await update.text()}`)
           console.log("已同步 Gitee v1.9.12 更新说明")
