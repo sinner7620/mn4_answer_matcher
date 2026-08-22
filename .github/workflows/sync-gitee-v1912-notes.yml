@@ -1,0 +1,30 @@
+name: Sync v1.9.12 Gitee release notes
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Gitee release notes
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          node - <<'NODE'
+          const token = process.env.GITEE_TOKEN
+          const base = "https://gitee.com/api/v5/repos/baidreams/CardLink"
+          const body = "v1.9.12\n\n- 答案预览窗口现支持双指缩放。\n- 修复部分卡片匹配结果异常的问题，现匹配结果会排除题目卡片自身。\n- 现可自行选择答案预览窗口关闭按钮位置。\n"
+          if (!token) throw new Error("GITEE_TOKEN 未配置")
+          const list = await fetch(`${base}/releases?per_page=100&access_token=${encodeURIComponent(token)}`)
+          if (!list.ok) throw new Error(`读取 Gitee Release 失败 (${list.status})`)
+          const release = (await list.json()).find(item => item.tag_name === "v1.9.12")
+          if (!release) throw new Error("未找到 Gitee Release v1.9.12")
+          const update = await fetch(`${base}/releases/${release.id}?access_token=${encodeURIComponent(token)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json;charset=UTF-8" },
+            body: JSON.stringify({ name: "CardLink v1.9.12", body, prerelease: false })
+          })
+          if (!update.ok) throw new Error(`更新 Gitee Release 失败 (${update.status}): ${await update.text()}`)
+          console.log("已同步 Gitee v1.9.12 更新说明")
+          NODE
