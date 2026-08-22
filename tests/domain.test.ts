@@ -521,6 +521,8 @@ test("完整卡片 HTML 包含图片摘录、图片评论和子卡片", () => {
   const html = renderCardHtml(note, "问题", () => undefined, hash => `base64-${hash}`)
   assert.match(html, /base64-excerpt-image/)
   assert.match(html, /base64-comment-image/)
+  assert.match(html, /document\.documentElement\.dataset\.previewScale/)
+  assert.match(html, /maximum-scale=3,user-scalable=yes/)
   assert.match(html, /子卡片内容/)
   assert.doesNotMatch(html, /OCR 文本/)
 })

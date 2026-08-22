@@ -1,6 +1,24 @@
 import { MN } from "marginnote"
 import { freePositionFrame, isFrameFullyOutside } from "./answer-card-layout"
 
+const PANEL_CLOSE_SIDE_KEY = "marginnote.extension.mn4-answer-matcher.beta.rails.close-side.v1"
+
+function closeButtonFrame(width: number): { x: number; y: number; width: number; height: number } {
+  const side = NSUserDefaults.standardUserDefaults().objectForKey(PANEL_CLOSE_SIDE_KEY) === "right"
+    ? "right"
+    : "left"
+  return { x: side === "right" ? width - 44 : 10, y: 9, width: 34, height: 34 }
+}
+
+function dragAreaFrame(width: number): { x: number; y: number; width: number; height: number } {
+  const side = NSUserDefaults.standardUserDefaults().objectForKey(PANEL_CLOSE_SIDE_KEY) === "right"
+    ? "right"
+    : "left"
+  return side === "right"
+    ? { x: 0, y: 0, width: width - 52, height: 48 }
+    : { x: 52, y: 0, width: width - 52, height: 48 }
+}
+
 export function showAnswerCard(html: string): void {
   const host = MN.studyController.view
   const hostFrame = host.bounds
@@ -31,8 +49,8 @@ export function showAnswerCard(html: string): void {
     container.addSubview(webView)
 
     const closeButton = UIButton.buttonWithType(0)
-    closeButton.frame = { x: defaultWidth - 44, y: 9, width: 34, height: 34 }
-    closeButton.autoresizingMask = 1 << 0
+    closeButton.frame = closeButtonFrame(defaultWidth)
+    closeButton.autoresizingMask = 0
     closeButton.setTitleForState("×", 0)
     closeButton.setTitleColorForState(UIColor.whiteColor(), 0)
     closeButton.backgroundColor = UIColor.blackColor().colorWithAlphaComponent(0.62)
@@ -41,8 +59,8 @@ export function showAnswerCard(html: string): void {
     closeButton.addTargetActionForControlEvents(self, "onCloseAnswerCard:", 1 << 6)
     container.addSubview(closeButton)
 
-    const dragArea = new UIView({ x: 0, y: 0, width: defaultWidth - 52, height: 48 })
-    dragArea.autoresizingMask = 1 << 1
+    const dragArea = new UIView(dragAreaFrame(defaultWidth))
+    dragArea.autoresizingMask = 0
     dragArea.backgroundColor = UIColor.blackColor().colorWithAlphaComponent(0.001)
     const dragGesture = new UIPanGestureRecognizer(self, "onAnswerCardPan:")
     dragGesture.addTargetAction(self, "onAnswerCardPan:")
@@ -82,8 +100,8 @@ export function showAnswerCard(html: string): void {
   const { width, height } = frame
   self.answerCardView.frame = frame
   self.answerCardWebView.frame = { x: 0, y: 0, width, height }
-  self.answerCardCloseButton.frame = { x: width - 44, y: 9, width: 34, height: 34 }
-  self.answerCardDragArea.frame = { x: 0, y: 0, width: width - 52, height: 48 }
+  self.answerCardCloseButton.frame = closeButtonFrame(width)
+  self.answerCardDragArea.frame = dragAreaFrame(width)
   self.answerCardResizeHandle.frame = { x: width - 36, y: height - 36, width: 30, height: 30 }
   ;(self.answerCardWebView as any).loadHTMLStringBaseURL(html, null)
   self.answerCardView.hidden = false
@@ -100,8 +118,8 @@ function layoutAnswerCard(frame: any): void {
   const next = freePositionFrame(frame)
   self.answerCardView.frame = next
   self.answerCardWebView.frame = { x: 0, y: 0, width: next.width, height: next.height }
-  self.answerCardCloseButton.frame = { x: next.width - 44, y: 9, width: 34, height: 34 }
-  self.answerCardDragArea.frame = { x: 0, y: 0, width: next.width - 52, height: 48 }
+  self.answerCardCloseButton.frame = closeButtonFrame(next.width)
+  self.answerCardDragArea.frame = dragAreaFrame(next.width)
   self.answerCardResizeHandle.frame = {
     x: next.width - 36,
     y: next.height - 36,
