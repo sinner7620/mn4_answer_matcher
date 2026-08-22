@@ -2,8 +2,10 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   // Panel size is session-only; every MarginNote restart returns to the default frame.
   var FRAME_KEY = "marginnote.extension.mn4-answer-matcher.rails.frame.v4";
   var OPEN_KEY = "marginnote.extension.mn4-answer-matcher.rails.open";
+  var CLOSE_SIDE_KEY = "marginnote.extension.mn4-answer-matcher.beta.rails.close-side.v1";
   var SCHEME = "mnaddon";
-  var TITLE_HEIGHT = 38;
+  var TITLE_HEIGHT = 56;
+  var CONTROL_CLUSTER_WIDTH = 90;
   var MIN_WIDTH = 460;
   var MIN_HEIGHT = 360;
 
@@ -68,6 +70,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     var frame = defaultFrame(controller);
     controller.view.autoresizingMask = 0;
     controller.view.frame = frame;
+    layoutCloseButton(controller, panelCloseButtonSide());
     saveFrame(controller);
     return { reset: true, frame: frame };
   }
@@ -105,6 +108,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
       study.view.addSubview(controller.view);
     }
     controller.view.frame = frame;
+    layoutCloseButton(controller, panelCloseButtonSide());
     lockWebViewRootScroll(controller);
     controller.view.hidden = false;
     controller.preserveAcrossNotebookSwitch = false;
@@ -115,6 +119,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     if (!controller.sessionFrame || controller.view.hidden) return;
     controller.view.autoresizingMask = 0;
     controller.view.frame = savedFrame(controller);
+    layoutCloseButton(controller, panelCloseButtonSide());
     lockWebViewRootScroll(controller);
   }
 
@@ -135,11 +140,29 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     } catch (error) {}
   }
 
+  function panelCloseButtonSide() {
+    return NSUserDefaults.standardUserDefaults().objectForKey(CLOSE_SIDE_KEY) === "right"
+      ? "right"
+      : "left";
+  }
+
+  function layoutCloseButton(controller, side) {
+    if (!controller || !controller.view) return;
+    controller.panelCloseSide = side === "right" ? "right" : "left";
+  }
+
+  function setCloseButtonSide(controller, side) {
+    var normalized = side === "right" ? "right" : "left";
+    NSUserDefaults.standardUserDefaults().setObjectForKey(normalized, CLOSE_SIDE_KEY);
+    layoutCloseButton(controller, normalized);
+    return { side: normalized };
+  }
+
   function setup(controller) {
     var frame = { x: 0, y: 0, width: 900, height: 640 };
     controller.view.autoresizingMask = 0;
     controller.view.frame = frame;
-    controller.view.backgroundColor = UIColor.whiteColor();
+    controller.view.backgroundColor = UIColor.clearColor();
     controller.view.layer.cornerRadius = 14;
     controller.view.layer.masksToBounds = false;
     controller.view.layer.shadowColor = UIColor.blackColor();
@@ -147,29 +170,17 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     controller.view.layer.shadowRadius = 12;
     controller.view.layer.shadowOffset = { width: 0, height: 4 };
 
-    controller.titleBar = new UIView({ x: 0, y: 0, width: frame.width, height: TITLE_HEIGHT });
-    controller.titleBar.backgroundColor = UIColor.colorWithHexString("#F7F8FB");
-    controller.titleBar.autoresizingMask = 1 << 1;
-    controller.view.addSubview(controller.titleBar);
-
-    var close = UIButton.buttonWithType(0);
-    close.frame = { x: 6, y: 3, width: 34, height: 32 };
-    close.setTitleForState("×", 0);
-    close.setTitleColorForState(UIColor.grayColor(), 0);
-    close.titleLabel.font = UIFont.systemFontOfSize(24);
-    close.addTargetActionForControlEvents(controller, "closeWindow", 1 << 6);
-    controller.titleBar.addSubview(close);
-
-    var pan = new UIPanGestureRecognizer(controller, "handlePan:");
-    controller.titleBar.addGestureRecognizer(pan);
-
     controller.webView = new UIWebView({
       x: 0,
-      y: TITLE_HEIGHT,
+      y: 0,
       width: frame.width,
-      height: frame.height - TITLE_HEIGHT
+      height: frame.height
     });
     controller.webView.autoresizingMask = (1 << 1) | (1 << 4);
+    try { controller.webView.opaque = false; } catch (error) {}
+    try { controller.webView.backgroundColor = UIColor.clearColor(); } catch (error) {}
+    try { controller.webView.layer.cornerRadius = 14; } catch (error) {}
+    try { controller.webView.layer.masksToBounds = true; } catch (error) {}
     // Keep the plugin chrome fixed. Internal HTML lists/preview panes may scroll,
     // but the UIWebView root itself must not rubber-band vertically.
     try { controller.webView.scrollView.bounces = false; } catch (error) {}
@@ -178,6 +189,11 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
     lockWebViewRootScroll(controller);
     controller.webView.delegate = controller;
     controller.view.addSubview(controller.webView);
+    controller.headerPan = new UIPanGestureRecognizer(controller, "handleHeaderPan:");
+    controller.headerPan.cancelsTouchesInView = false;
+    controller.headerPan.delegate = controller;
+    controller.webView.addGestureRecognizer(controller.headerPan);
+    layoutCloseButton(controller, panelCloseButtonSide());
 
     var resize = new UILabel({ x: frame.width - 38, y: frame.height - 38, width: 32, height: 32 });
     resize.text = "↘";
@@ -193,12 +209,29 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
   }
 
   var PanelClass = JSB.defineClass(
-    "MNAnswerMatcherRailsPanel : UIViewController <UIWebViewDelegate>",
+    "MNAnswerMatcherRailsPanel : UIViewController <UIWebViewDelegate, UIGestureRecognizerDelegate>",
     {
       viewDidLoad: function () { setup(self); },
-      closeWindow: function () { closePanel(self, true); },
-      handlePan: function (gesture) {
-        if (gesture.state === 1) self.userAdjustingFrame = true;
+      gestureRecognizerShouldBegin: function (gesture) {
+        if (gesture !== self.headerPan) return true;
+        var start = gesture.locationInView(self.view);
+        var width = Number(self.view.bounds.width || self.view.frame.width || 0);
+        var controlsOnRight = self.panelCloseSide === "right";
+        var insideHeader = Number(start.y) >= 0 && Number(start.y) <= TITLE_HEIGHT;
+        var insideControls = controlsOnRight
+          ? Number(start.x) >= width - CONTROL_CLUSTER_WIDTH
+          : Number(start.x) <= CONTROL_CLUSTER_WIDTH;
+        self.headerPanActive = insideHeader && !insideControls;
+        return self.headerPanActive;
+      },
+      handleHeaderPan: function (gesture) {
+        if (gesture.state === 1) {
+          if (self.headerPanActive) self.userAdjustingFrame = true;
+        }
+        if (!self.headerPanActive) {
+          gesture.setTranslationInView({ x: 0, y: 0 }, self.view.superview);
+          return;
+        }
         var translation = gesture.translationInView(self.view.superview);
         self.view.center = {
           x: self.view.center.x + translation.x,
@@ -208,6 +241,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
         if (gesture.state === 3 || gesture.state === 4 || gesture.state === 5) {
           saveFrame(self);
           self.userAdjustingFrame = false;
+          self.headerPanActive = false;
         }
       },
       handleResize: function (gesture) {
@@ -223,6 +257,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
           width: Math.max(MIN_WIDTH, self.resizeStart.frame.width + point.x - self.resizeStart.location.x),
           height: Math.max(MIN_HEIGHT, self.resizeStart.frame.height + point.y - self.resizeStart.location.y)
         };
+        layoutCloseButton(self, panelCloseButtonSide());
         lockWebViewRootScroll(self);
         if (gesture.state === 3 || gesture.state === 4 || gesture.state === 5) {
           saveFrame(self);
@@ -256,7 +291,9 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
             controller: self,
             addon: self.addon,
             closePanel: closePanel,
-            resetPanelFrame: resetFrame
+            resetPanelFrame: resetFrame,
+            panelCloseButtonSide: panelCloseButtonSide,
+            setPanelCloseButtonSide: setCloseButtonSide
           };
           var result = __MNAM_WEB_BRIDGE_GLOBAL__.dispatch(context, message.command, message.payload);
           if (result && typeof result.then === "function") {
@@ -297,6 +334,7 @@ var __MNAM_WEB_PANEL_GLOBAL__ = (function () {
       study.view.addSubview(controller.view);
     }
     controller.view.frame = frame;
+    layoutCloseButton(controller, panelCloseButtonSide());
     // Establish a stable frame at a controlled point. Only explicit user
     // movement/resizing or resetFrame may change sessionFrame afterwards.
     saveFrame(controller);

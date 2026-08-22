@@ -7,6 +7,8 @@ export interface MatcherSettings {
   allowSameStudySetMindMap: boolean
   mistakeReviewCurves: MistakeReviewCurves
   mistakeCustomCategories: string[]
+  debugModeEnabled: boolean
+  experimentalGlassEnabled: boolean
 }
 
 const levels: MistakeLevel[] = [0, 1, 2, 3, 4, 5]
@@ -37,7 +39,9 @@ export function loadMatcherSettings(): MatcherSettings {
   return {
     allowSameStudySetMindMap: value?.allowSameStudySetMindMap === true,
     mistakeReviewCurves: normalizeMistakeReviewCurves(value?.mistakeReviewCurves),
-    mistakeCustomCategories: normalizeMistakeCustomCategories(value?.mistakeCustomCategories)
+    mistakeCustomCategories: normalizeMistakeCustomCategories(value?.mistakeCustomCategories),
+    debugModeEnabled: value?.debugModeEnabled === true,
+    experimentalGlassEnabled: value?.debugModeEnabled === true && value?.experimentalGlassEnabled === true
   }
 }
 

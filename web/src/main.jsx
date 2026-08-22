@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import MNBridge from "./lib/mnBridge"
 import { Icon } from "./icons"
+import { mountJustGlassDebug, unmountJustGlassDebug } from "./just-glass-debug"
+import { mountLiquidGlassTopbar, unmountLiquidGlassTopbar } from "./liquid-glass-topbar"
 import { buildMindMapOptions, buildParentInsights, sourceInsightKey } from "../../src/source-insights"
 import "./styles.css"
 import "./overview.css"
@@ -15,6 +17,7 @@ import "./layout-reference.css"
 import "./beta-ui.css"
 import "./ui-reference-final.css"
 import "./export-beta2.css"
+import "./liquid-glass-topbar.css"
 
 const levelNames = ["未掌握", "已理解", "可完成", "已掌握", "已稳定", "已迁移"]
 const levelExplanations = [
@@ -101,7 +104,9 @@ function App() {
   const [categoryPath, setCategoryPath] = useState([])
   const [selectedId, setSelectedId] = useState("")
   const [detail, setDetail] = useState(null)
+  const [postTestResult, setPostTestResult] = useState(null)
   const selectedIdRef = useRef("")
+  const versionTapRef = useRef({ count: 0, lastAt: 0 })
   selectedIdRef.current = selectedId
 
   async function load() {
@@ -173,6 +178,44 @@ function App() {
     }
   }, [])
 
+  const debugModeEnabled = data?.matching?.debugModeEnabled === true
+  const experimentalGlassEnabled = debugModeEnabled && data?.matching?.experimentalGlassEnabled === true
+
+  useEffect(() => {
+    if (experimentalGlassEnabled) {
+      mountJustGlassDebug()
+      mountLiquidGlassTopbar()
+    } else {
+      unmountJustGlassDebug()
+      unmountLiquidGlassTopbar()
+    }
+    return () => {
+      unmountJustGlassDebug()
+      unmountLiquidGlassTopbar()
+    }
+  }, [experimentalGlassEnabled])
+
+  async function handleVersionTap() {
+    const now = Date.now()
+    const taps = versionTapRef.current
+    taps.count = now - taps.lastAt <= 1500 ? taps.count + 1 : 1
+    taps.lastAt = now
+    if (!debugModeEnabled && taps.count >= 5) {
+      taps.count = 0
+      await action("setDebugMode", { enabled: true })
+      return
+    }
+    if (debugModeEnabled) {
+      await action("notify", { message: `当前版本 v${data?.version || "…"}；调试模式已开启` }, false)
+    }
+  }
+
+  async function runPostTest() {
+    setPostTestResult(null)
+    const result = await action("testTelemetryPost", null, false)
+    if (result?.test) setPostTestResult(result)
+  }
+
   const records = useMemo(() => {
     const needle = normalizeSearch(query)
     return (data?.mistakes?.records || []).filter(item =>
@@ -189,12 +232,16 @@ function App() {
     ["settings", "设置"]
   ]
 
-  return <div className="shell">
+  const panelCloseSide = data?.matching?.panelCloseButtonSide === "right" ? "right" : "left"
+  const refreshButton = <button className="iconButton" aria-label="刷新" onClick={load} disabled={busy}><Icon name="refresh" /></button>
+  const closeButton = <button className="iconButton" aria-label="关闭插件窗口" onClick={() => action("closePanel", null, false)}><Icon name="close" /></button>
+
+  return <div className={`shell panelClose-${panelCloseSide} ${experimentalGlassEnabled ? "mn-liquid-glass-topbar" : ""}`}>
     <main>
       <header className="topBar">
-        <div className="appBrand"><span><img src="./logo.png" alt="MN4 Answer Matcher" /></span><strong>MN4 Answer Matcher</strong></div>
+        <div className="topTools topTools-left">{panelCloseSide === "left" && <>{closeButton}{refreshButton}</>}</div>
         <nav className="topNav">{entries.map(([key, name, count]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><strong>{name}</strong>{count > 0 && <b>{count}</b>}</button>)}</nav>
-        <div className="topTools"><small>v{data?.version || "…"}</small><button className="iconButton" onClick={load} disabled={busy}><Icon name="refresh" /></button></div>
+        <div className="topTools topTools-right">{panelCloseSide === "right" && <>{refreshButton}{closeButton}</>}</div>
       </header>
       <div className="pageHeading"><h1>{tab === "overview" ? "错题总览" : tab === "mistakes" ? "错题浏览" : tab === "review" ? "到期复习" : tab === "export" ? "导出错题" : "设置"}</h1><p>{tab === "overview" ? "掌握情况、到期复习和最近错题概览" : tab === "mistakes" ? "全部错题保留在原脑图中，可添加标签、核对答案并定位原题" : tab === "export" ? "从当前错题记录生成可另存的 PDF 或 Markdown 文件" : "跨脑图答案与错题工作台"}</p></div>
       {error && <div className="error">{error}</div>}
@@ -263,17 +310,35 @@ function App() {
           ["download", "导出错题", "以 Markdown 格式预览导出", openExport]
           ]} />
           <SettingsGroup title="插件" items={[
-          ["info", "当前版本", `v${data?.version || "…"} · frank`, () => action("notify", { message: `当前版本 v${data?.version || "…"}` }, false)],
+          ["info", "当前版本", `v${data?.version || "…"} · frank`, handleVersionTap],
+          ["organize", "插件窗口关闭按钮", panelCloseSide === "right"
+            ? "当前位于右上角，点击切换到左上角"
+            : "当前位于左上角，点击切换到右上角", () => action("setPanelCloseButtonSide", { side: panelCloseSide === "right" ? "left" : "right" }), <span className={`preview-switch ${panelCloseSide === "right" ? "on" : ""}`} role="switch" aria-label="左侧或右侧" aria-checked={panelCloseSide === "right"} key="close-position" />],
           ["reset", "重置窗口位置与大小", "将工作台窗口恢复到默认尺寸", () => action("resetPanelFrame", null, false)],
           ["download", "检查插件更新", "检查 GitHub 版本并选择安装或保存", () => action("checkUpdates", null, false)]
 
           ]} />
+          {debugModeEnabled && <>
+            <SettingsGroup title="调试功能" items={[
+              ["download", "导出运行日志", "仅记录并导出调试模式开启期间的运行事件", () => action("exportRuntimeLog", null, false)],
+              ["organize", "实验性 UI 测试", experimentalGlassEnabled
+                ? "已开启：各界面最顶层显示可拖动 Just Glass 折射矩形"
+                : "已关闭：点击加载可拖动 Just Glass 折射矩形", () => action("setExperimentalGlass", { enabled: !experimentalGlassEnabled }), <span className={`preview-switch ${experimentalGlassEnabled ? "on" : ""}`} role="switch" aria-checked={experimentalGlassEnabled} key="experimental-glass" />],
+              ["refresh", "上报 POST 测试", "发送明确标注为测试内容的请求，并检查每个上报域名", runPostTest],
+              ["close", "退出调试模式", "停止日志记录、关闭实验 UI 并清空运行日志", () => { setPostTestResult(null); action("setDebugMode", { enabled: false }) }]
+            ]} />
+            {postTestResult && <PostTestResult result={postTestResult} />}
+          </>}
         </div><div className="settingsGroups settingsSecondary">
           <MistakeLevelGuide reviewCurves={data?.mistakes?.reviewCurves} action={action} />
         </div></div>
       </section>}
     </main>
   </div>
+}
+
+function PostTestResult({ result }) {
+  return <section className="postTestResult"><header><strong>POST 连通性测试结果</strong><small>{formatDate(result.testedAt)} · 测试内容不会更新正式上报状态</small></header><div>{(result.results || []).map(item => <article key={item.endpoint} className={item.reachable ? "reachable" : "failed"}><span><strong>{item.domain}</strong><small>{item.endpoint}</small></span><b>{item.reachable ? `已连通 · HTTP ${item.statusCode}` : `未连通 · ${item.error || "无响应"}`}</b><em>{item.durationMs} ms</em></article>)}</div></section>
 }
 
 function MistakeBrowser(props) {
@@ -484,7 +549,11 @@ function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
 }
 
 function MistakeListItem({ item, selected, selectable, checked, onClick }) {
-  return <button className={`mistakeItem ${selected || checked ? "selected" : ""} ${selectable ? "selectable" : ""} ${item.noteAvailable ? "" : "unavailable"}`} onClick={onClick}>{selectable && <span className={`batchCheck ${checked ? "checked" : ""}`}>{checked ? "✓" : ""}</span>}<span className="mistakeItemBody"><strong>{item.sourceTitle}</strong><small>{item.categoryLabel}</small><small>添加 {formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small><small>{item.sourceNotebookTitle}{item.noteAvailable ? "" : " · 原卡片不可用"}</small></span><span className={`level level${item.level}`}>{item.level}级</span></button>
+  const rawTags = Array.isArray(item.manualCategories) && item.manualCategories.length
+    ? item.manualCategories
+    : item.manualCategory ? [item.manualCategory] : []
+  const manualTags = Array.from(new Set(rawTags.map(tag => String(tag).trim().replace(/^#+/, "")).filter(Boolean)))
+  return <button className={`mistakeItem ${selected || checked ? "selected" : ""} ${selectable ? "selectable" : ""} ${item.noteAvailable ? "" : "unavailable"}`} onClick={onClick}>{selectable && <span className={`batchCheck ${checked ? "checked" : ""}`}>{checked ? "✓" : ""}</span>}<span className="mistakeItemBody"><strong>{item.sourceTitle}</strong>{manualTags.length > 0 ? <span className="mistakeItemTags">{manualTags.map(tag => <em key={tag}>#{tag}</em>)}</span> : <small>{item.categoryLabel}</small>}<small>添加 {formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small><small>{item.sourceNotebookTitle}{item.noteAvailable ? "" : " · 原卡片不可用"}</small></span><span className={`level level${item.level}`}>{item.level}级</span></button>
 }
 
 function DueReviewList({ records, action }) {
@@ -721,7 +790,7 @@ function Empty({ title, text, icon = true }) {
 }
 
 function SettingsGroup({ title, items }) {
-  return <div className="settingsGroup"><h2>{title}</h2><div>{items.map(([icon, name, description, onClick, trailing]) => <button key={name} onClick={onClick}><i><Icon name={icon} /></i><span><strong>{name}</strong><small>{description}</small></span>{trailing}</button>)}</div></div>
+  return <div className="settingsGroup"><h2>{title}</h2><div>{items.map(([icon, name, description, onClick, trailing]) => <button key={name} className={trailing ? "hasTrailing" : ""} onClick={onClick}><i><Icon name={icon} /></i><span><strong>{name}</strong><small>{description}</small></span>{trailing}</button>)}</div></div>
 }
 
 function RegexMatchingSettings({ matching, action }) {

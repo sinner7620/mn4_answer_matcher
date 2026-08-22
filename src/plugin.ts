@@ -10,7 +10,7 @@ import {
   select,
   showHUD
 } from "marginnote"
-import { pathMatchScore } from "./domain"
+import { excludeAnswerNoteId, pathMatchScore } from "./domain"
 import { findAnswersForQuestion } from "./answer-lookup"
 import { createAnswerToolbar, destroyAnswerToolbar, hideAnswerToolbar, showAnswerToolbar } from "./floating-toolbar"
 import {
@@ -46,7 +46,7 @@ import {
 import { checkForUpdates, scheduleAutomaticUpdateCheck } from "./updater"
 import { scheduleTelemetryReport } from "./telemetry"
 import { chooseNotebook, closeNotebookPicker, onNotebookPickerAction } from "./notebook-picker"
-import { completePendingNoteNavigation } from "./note-navigation"
+import { completePendingNoteNavigation, recordRuntimeState } from "./note-navigation"
 import {
   chooseMistakeLevel,
   closeMistakeLevelPicker,
@@ -394,9 +394,12 @@ export interface AnswerMatchingSettingsData {
   pairs: number
   matchedGroups: number
   regexRules: RegexMatchingRules
+  debugModeEnabled: boolean
+  experimentalGlassEnabled: boolean
 }
 
 export function answerMatchingSettingsData(): AnswerMatchingSettingsData {
+  const settings = loadMatcherSettings()
   const notebookId = currentNotebookId()
   const source = sourceMindMap()
   const target = notebookId ? bindingForSource(notebookId, source?.rootNodeId) : undefined
@@ -408,13 +411,15 @@ export function answerMatchingSettingsData(): AnswerMatchingSettingsData {
         : "title",
     label: matchingModeLabel(target),
     bound: Boolean(target),
-    scopedBinding: scopedBindingEnabled(),
+    scopedBinding: settings.allowSameStudySetMindMap,
     pairs: target?.orderedPairing?.pairs.length ?? 0,
     matchedGroups: target?.orderedPairing?.matchedGroups ?? 0,
     regexRules: target?.regexRules ?? {
       questionPattern: "",
       answerPattern: ""
-    }
+    },
+    debugModeEnabled: settings.debugModeEnabled,
+    experimentalGlassEnabled: settings.experimentalGlassEnabled
   }
 }
 
@@ -616,7 +621,125 @@ async function chooseMatch(
   return result.index < 0 ? undefined : matches[result.index]
 }
 
+function debugObjectKeys(value: any): string {
+  try {
+    return value && typeof value === "object" ? Object.keys(value).slice(0, 40).join(",") : ""
+  } catch (error) {
+    return `读取失败:${String(error)}`
+  }
+}
+
+function debugBridgeValue(value: any, key: string, method: "valueForKey" | "objectForKey"): unknown {
+  try {
+    return typeof value?.[method] === "function" ? value[method](key) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function debugTextLength(value: unknown): number {
+  return typeof value === "string" ? value.length : 0
+}
+
+function debugId(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function recordAnswerCardDiagnostics(questionTitle: string, answer: IndexedAnswer): void {
+  try {
+    const note = MN.db.getNoteById(answer.noteId)
+    recordRuntimeState(
+      "答案匹配",
+      "准备渲染答案卡片",
+      `question=${questionTitle} answerNoteId=${answer.noteId} answerNodeId=${answer.id} answerExists=${Boolean(note)}`
+    )
+    if (!note) return
+
+    let comments: any[] = []
+    try {
+      comments = Array.from((note as any).comments ?? [])
+    } catch (error) {
+      recordRuntimeState("答案匹配", "读取 comments 失败", `answerNoteId=${answer.noteId} error=${String(error)}`)
+      return
+    }
+
+    let childCount = -1
+    try {
+      childCount = Array.from((note as any).childNotes ?? []).length
+    } catch {
+      childCount = -1
+    }
+    recordRuntimeState(
+      "答案匹配",
+      "答案卡片结构",
+      `answerNoteId=${answer.noteId} title=${String((note as any).noteTitle ?? "")} comments=${comments.length}` +
+        ` childNotes=${childCount} excerptPic=${Boolean((note as any).excerptPic)}` +
+        ` excerptTextLength=${debugTextLength((note as any).excerptText)}`
+    )
+
+    comments.slice(0, 40).forEach((comment, index) => {
+      let type = ""
+      try {
+        type = String(comment?.type ?? "")
+      } catch {
+        type = "(读取失败)"
+      }
+      const noteid = debugId(comment?.noteid)
+      recordRuntimeState(
+        "答案匹配",
+        `comment#${index + 1}`,
+        `type=${type || "(空)"} noteid=${noteid || "(空)"} keys=${debugObjectKeys(comment) || "(无)"}`
+      )
+      if (type !== "LinkNote") return
+
+      const directText = comment?.q_htext
+      const kvcText = debugBridgeValue(comment, "q_htext", "valueForKey")
+      const objectText = debugBridgeValue(comment, "q_htext", "objectForKey")
+      const directPic = comment?.q_hpic
+      const kvcPic = debugBridgeValue(comment, "q_hpic", "valueForKey")
+      const objectPic = debugBridgeValue(comment, "q_hpic", "objectForKey")
+      const pic = directPic ?? kvcPic ?? objectPic
+      const directPaint = pic?.paint
+      const kvcPaint = debugBridgeValue(pic, "paint", "valueForKey")
+      const objectPaint = debugBridgeValue(pic, "paint", "objectForKey")
+      const paint = debugId(directPaint) || debugId(kvcPaint) || debugId(objectPaint)
+      let mediaExists = false
+      if (paint) {
+        try {
+          mediaExists = Boolean(MN.db.getMediaByHash(paint))
+        } catch {
+          mediaExists = false
+        }
+      }
+      let linkedExists = false
+      if (noteid) {
+        try {
+          linkedExists = Boolean(MN.db.getNoteById(noteid))
+        } catch {
+          linkedExists = false
+        }
+      }
+      recordRuntimeState(
+        "答案匹配",
+        `LinkNote#${index + 1}`,
+        `commentKVC=${typeof comment?.valueForKey === "function"} commentObjectForKey=${typeof comment?.objectForKey === "function"}` +
+          ` directTextLength=${debugTextLength(directText)}` +
+          ` kvcTextLength=${debugTextLength(kvcText)} objectTextLength=${debugTextLength(objectText)}` +
+          ` directPic=${Boolean(directPic)} kvcPic=${Boolean(kvcPic)} objectPic=${Boolean(objectPic)}` +
+          ` picKVC=${typeof pic?.valueForKey === "function"} picObjectForKey=${typeof pic?.objectForKey === "function"}` +
+          ` picKeys=${debugObjectKeys(pic) || "(无)"}` +
+          ` directPaint=${debugId(directPaint) || "(空)"}` +
+          ` kvcPaint=${debugId(kvcPaint) || "(空)"} objectPaint=${debugId(objectPaint) || "(空)"}` +
+          ` mediaExists=${mediaExists} linkedNoteExists=${linkedExists}`
+      )
+    })
+  } catch (error) {
+    recordRuntimeState("答案匹配", "答案卡片诊断失败", `answerNoteId=${answer.noteId} error=${String(error)}`)
+  }
+}
+
 async function showAnswer(questionTitle: string, answer: IndexedAnswer): Promise<void> {
+  recordAnswerCardDiagnostics(questionTitle, answer)
   showAnswerCard(answerCardHtml(answer, questionTitle))
 }
 
@@ -637,6 +760,12 @@ export async function findCurrentAnswer(): Promise<void> {
   const lookupQuestion = mistakeContext?.sourceQuestion ?? question
   const bindingSourceNotebookId = mistakeContext?.record.sourceNotebookId ?? questionNotebookId
   const sourceRootNodeId = sourceMindMapId(bindingSourceNotebookId, lookupQuestion)
+  recordRuntimeState(
+    "答案匹配",
+    "开始查找答案",
+    `questionNoteId=${String(lookupQuestion.note?.noteId ?? "")} questionTitle=${lookupQuestion.title?.trim() || ""}` +
+      ` sourceNotebookId=${bindingSourceNotebookId} sourceRootNodeId=${sourceRootNodeId}`
+  )
   const storedTarget = bindingForSource(bindingSourceNotebookId, sourceRootNodeId) ??
     (mistakeContext?.record.answerNotebookId
       ? {
@@ -646,6 +775,11 @@ export async function findCurrentAnswer(): Promise<void> {
       : undefined)
   const answerTarget = storedTarget && effectiveAnswerTarget(storedTarget)
   if (!answerTarget) {
+    recordRuntimeState(
+      "答案匹配",
+      "未找到答案绑定",
+      `sourceNotebookId=${bindingSourceNotebookId} sourceRootNodeId=${sourceRootNodeId}`
+    )
     const shouldBind = await popup({
       title: "尚未绑定答案脑图",
       message: mistakeContext
@@ -679,11 +813,21 @@ export async function findCurrentAnswer(): Promise<void> {
     questionPath = mistakeContext?.record.sourcePathTitles ?? []
   }
 
-  const matches = findAnswersForQuestion(
+  const rawMatches = findAnswersForQuestion(
     answerTarget,
     lookupQuestion,
     questionTitles,
     questionPath
+  )
+  const questionNoteId = String(lookupQuestion.note?.noteId ?? "").trim()
+  const matches = excludeAnswerNoteId(rawMatches, questionNoteId)
+  recordRuntimeState(
+    "答案匹配",
+    "匹配结果",
+    `targetNotebookId=${answerTarget.notebookId} targetRootNodeId=${answerTarget.rootNodeId || "(整个学习集)"}` +
+      ` mode=${answerTarget.matchMode || "title"} rawMatchCount=${rawMatches.length} matchCount=${matches.length}` +
+      ` filteredSelf=${rawMatches.length - matches.length}` +
+      ` matches=${matches.slice(0, 12).map(item => `${item.noteId}:${item.titles[0] || "未命名"}`).join("|") || "(无)"}`
   )
   if (!matches.length) {
     const notFoundMessage = answerTarget.matchMode === "parent-order"
@@ -700,7 +844,10 @@ export async function findCurrentAnswer(): Promise<void> {
     matches,
     answerTarget.matchMode === "regex" ? [] : questionPath
   )
-  if (answer) await showAnswer(questionTitle, answer)
+  if (answer) {
+    recordRuntimeState("答案匹配", "最终选择答案", `answerNoteId=${answer.noteId} answerNodeId=${answer.id}`)
+    await showAnswer(questionTitle, answer)
+  }
 }
 
 async function runSafely(action: () => Promise<void>): Promise<void> {
@@ -906,6 +1053,7 @@ export async function openMenu(): Promise<void> {
       "错题统计与到期复习",
       "打开错题浏览窗口",
       "定位当前错题原题",
+
       "刷新错题分类索引",
       scoped ? "绑定/更换具体答案脑图" : "绑定/更换答案学习集",
       "刷新答案索引",
@@ -930,6 +1078,7 @@ export async function openMenu(): Promise<void> {
     else await openLinkedMistakeOrSource(question, questionNotebookId)
   }
   else if (result.index === 5) await repairAndOrganizeMistakes()
+
   else if (result.index === 6) await runSafely(bindAnswerNotebook)
   else if (result.index === 7) await runSafely(refreshCurrentIndex)
   else if (result.index === 8) await runSafely(configureAnswerMatching)
@@ -943,6 +1092,7 @@ export async function openMenu(): Promise<void> {
 export const lifecycle = defineLifecycleHandlers({
   instanceMethods: {
     sceneWillConnect() {
+      recordRuntimeState("生命周期", "sceneWillConnect 开始")
       self.addon = {
         key: __APP_VERSION__.includes("-beta")
           ? "mn4-answer-matcher-beta"
@@ -961,14 +1111,18 @@ export const lifecycle = defineLifecycleHandlers({
       scheduleMistakeTagRecovery()
       scheduleMistakeReviewReminder()
       startMistakeReminderTimer()
+      recordRuntimeState("生命周期", "sceneWillConnect 完成")
     },
     notebookWillOpen(notebookId: string) {
+      recordRuntimeState("生命周期", "notebookWillOpen 开始", `openedNotebookId=${notebookId}`)
       eventObservers.remove()
       eventObservers.add()
       void completePendingNoteNavigation(notebookId)
       scheduleMistakeTagRecovery(notebookId)
+      recordRuntimeState("生命周期", "notebookWillOpen 调度完成", `openedNotebookId=${notebookId}`)
     },
     notebookWillClose() {
+      recordRuntimeState("生命周期", "notebookWillClose 开始")
       eventObservers.remove()
       self.lastClickedNote = undefined
       self.answerToolbarNoteId = undefined
@@ -977,8 +1131,10 @@ export const lifecycle = defineLifecycleHandlers({
       closeAnswerCard()
       closeNotebookPicker()
       closeMistakeLevelPicker()
+      recordRuntimeState("生命周期", "notebookWillClose 完成")
     },
     sceneDidDisconnect() {
+      recordRuntimeState("生命周期", "sceneDidDisconnect 开始")
       eventObservers.remove()
       destroyAnswerToolbar()
       clearIndex()
@@ -986,14 +1142,17 @@ export const lifecycle = defineLifecycleHandlers({
       closeNotebookPicker()
       closeMistakeLevelPicker()
       stopMistakeReminderTimer()
+      recordRuntimeState("生命周期", "sceneDidDisconnect 完成")
     }
   },
   classMethods: {
     applicationWillEnterForeground() {
+      recordRuntimeState("生命周期", "applicationWillEnterForeground 开始")
       scheduleAutomaticUpdateCheck()
       scheduleTelemetryReport()
       scheduleMistakeTagRecovery()
       scheduleMistakeReviewReminder()
+      recordRuntimeState("生命周期", "applicationWillEnterForeground 完成")
     },
     addonWillDisconnect() {
       destroyAnswerToolbar()

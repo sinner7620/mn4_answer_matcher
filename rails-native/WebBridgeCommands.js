@@ -251,6 +251,19 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
     if (command === "resetPanelFrame") {
       return context.resetPanelFrame(context.controller);
     }
+    if (command === "setPanelCloseButtonSide") {
+      return context.setPanelCloseButtonSide(context.controller, payload && payload.side);
+    }
+    if (command === "dashboard") {
+      var dashboard = __MN_ANSWER_CORE_GLOBAL__.bridge(command, payload);
+      function attachPanelSettings(value) {
+        if (value && value.matching) value.matching.panelCloseButtonSide = context.panelCloseButtonSide();
+        return value;
+      }
+      return dashboard && typeof dashboard.then === "function"
+        ? dashboard.then(attachPanelSettings)
+        : attachPanelSettings(dashboard);
+    }
     var result = __MN_ANSWER_CORE_GLOBAL__.bridge(command, payload);
     if (command !== "exportMistakes") return result;
     if (result && typeof result.then === "function") return result.then(function (value) { return renderPdf(context, value); });

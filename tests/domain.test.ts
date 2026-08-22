@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   buildIndex,
+  excludeAnswerNoteId,
   extractAnswer,
   normalizeTitle,
   pathMatchScore,
@@ -466,6 +467,16 @@ test("索引同一卡片的重复标题只收录一次", () => {
   const answer = { id: "1", titles: ["问题？", "问题?"] }
   const index = buildIndex([answer])
   assert.equal(index.get("问题")?.length, 1)
+})
+
+test("答案候选会排除当前题目自身的 noteId", () => {
+  const matches = [
+    { noteId: "question", title: "题目自身" },
+    { noteId: "answer", title: "真正答案" }
+  ]
+  assert.deepEqual(excludeAnswerNoteId(matches, "question"), [
+    { noteId: "answer", title: "真正答案" }
+  ])
 })
 
 test("标准答案标签排在普通匹配前", () => {

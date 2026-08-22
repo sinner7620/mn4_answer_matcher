@@ -74,6 +74,7 @@ for (const match of entrySource.matchAll(/JSB\.require\("([^"]+)"\)/g)) {
 }
 await cp(webDist, path.join(addonRoot, "web-dist"), { recursive: true })
 await copyFile(path.join(root, "assets", "logo.png"), path.join(addonRoot, "logo.png"))
+await copyFile(path.join(root, "THIRD_PARTY_NOTICES.txt"), path.join(addonRoot, "THIRD_PARTY_NOTICES.txt"))
 
 const manifest = {
   addonid: betaChannel

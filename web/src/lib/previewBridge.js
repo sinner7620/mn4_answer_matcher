@@ -1,6 +1,8 @@
 const DAY = 86400000
 const levelDays = [1, 1, 3, 7, 30, 60]
 let customCategories = ["计算题", "概念辨析", "需要重做"]
+let debugModeEnabled = false
+let experimentalGlassEnabled = false
 
 function dateFromNow(days) {
   return new Date(Date.now() + days * DAY).toISOString()
@@ -17,6 +19,8 @@ const records = [
     categoryPath: ["多元微分", "基本概念题", "偏导与连续"],
     categoryLabel: "多元微分 › 基本概念题 › 偏导与连续",
     categoryKeys: [],
+    manualCategories: ["概念辨析", "需要重做"],
+    manualCategory: "概念辨析",
     level: 1,
     createdAt: dateFromNow(-6),
     updatedAt: dateFromNow(-2),
@@ -133,17 +137,38 @@ function detail(recordId) {
 
 export async function previewSend(command, payload = null) {
   if (command === "dashboard") return {
-    version: "2.3.2-beta.1 · 完整界面预览",
+    version: "2.3.3-beta.1 · 完整界面预览",
     mistakes: workbench(),
     matching: {
       scopedBinding: true,
       mode: "title",
       matchedGroups: 0,
       pairs: 0,
-      regexRules: { questionPattern: "", answerPattern: "" }
+      regexRules: { questionPattern: "", answerPattern: "" },
+      debugModeEnabled,
+      experimentalGlassEnabled
     }
   }
   if (command === "mistakes") return workbench()
+  if (command === "setDebugMode") {
+    debugModeEnabled = payload?.enabled === true
+    if (!debugModeEnabled) experimentalGlassEnabled = false
+    return { enabled: debugModeEnabled }
+  }
+  if (command === "setExperimentalGlass") {
+    if (!debugModeEnabled) throw new Error("请先开启调试模式")
+    experimentalGlassEnabled = payload?.enabled === true
+    return { enabled: experimentalGlassEnabled }
+  }
+  if (command === "testTelemetryPost") return {
+    test: true,
+    testedAt: new Date().toISOString(),
+    payload: { test: true, content: "MN4 调试模式 POST 连通性测试内容，不计入正式上报" },
+    results: [
+      { endpoint: "https://cardlink.cn.eu.org/ping", domain: "cardlink.cn.eu.org", reachable: true, accepted: true, statusCode: 204, durationMs: 83 },
+      { endpoint: "https://mnrails-telemetry.mr-wuyzhn.workers.dev/ping", domain: "mnrails-telemetry.mr-wuyzhn.workers.dev", reachable: true, accepted: true, statusCode: 204, durationMs: 116 }
+    ]
+  }
   if (command === "mistakeDetail") return detail(String(payload?.recordId ?? ""))
   if (command === "reviewMistake") {
     const record = records.find(item => item.recordId === String(payload?.recordId ?? ""))

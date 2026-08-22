@@ -1,0 +1,217 @@
+/* Copied from MN-liquid-glass-demo/web/src/liquid-glass-demo.css and scoped so
+   it is active only for Debug Mode > Experimental UI. */
+.mn-liquid-glass-topbar {
+  --lg-accent: 0,122,255;
+  --lg-glass-alpha: .16;
+  --lg-glass-blur: 3px;
+  --lg-glass-sat: 180%;
+  --lg-edge: .76;
+  --lg-highlight: .88;
+  --lg-refraction: .74;
+  --lg-shadow: .09;
+  --lg-tint: .04;
+  --lg-stretch-max: .34;
+  --lg-predict-ms: 72;
+  --lg-glare-x: 50%;
+}
+
+#mnJustGlassBackground { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; }
+.mn-experimental-just-glass-background #root { position: relative; z-index: auto; }
+.mn-liquid-glass-topbar.shell > main {
+  z-index: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 18px 430px !important;
+  scroll-padding-top: 98px;
+  overscroll-behavior-y: contain;
+  background: transparent !important;
+}
+#mnLiquidTopbarOptics { position: fixed; inset: 0; z-index: 89; width: 100%; height: 100%; pointer-events: none; }
+.mn-liquid-optical-ready .mn-liquid-glass-topbar .topBar {
+  background: rgba(255,255,255,.035) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.mn-liquid-optical-ready .mn-liquid-glass-topbar .topNav {
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.mn-liquid-optical-ready .mn-liquid-glass-topbar .topNav::before {
+  background: rgba(255,255,255,.035) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.mn-liquid-glass-topbar .topBar {
+  position: sticky !important;
+  top: 10px !important;
+  z-index: 90 !important;
+  height: 62px !important;
+  margin: 10px 10px 20px !important;
+  padding: 8px 12px !important;
+  border-radius: 25px !important;
+  overflow: visible !important;
+  background: linear-gradient(180deg,rgba(255,255,255,var(--lg-glass-alpha)),rgba(222,241,255,.025)) !important;
+  border: 1px solid rgba(255,255,255,var(--lg-edge)) !important;
+  -webkit-backdrop-filter: blur(var(--lg-glass-blur)) saturate(var(--lg-glass-sat)) brightness(1.035) contrast(1.025) !important;
+  backdrop-filter: blur(var(--lg-glass-blur)) saturate(var(--lg-glass-sat)) brightness(1.035) contrast(1.025) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.78), inset 0 -1px 0 rgba(60,93,134,.07), 0 var(--lg-scroll-shadow-y,8px) var(--lg-scroll-shadow-blur,25px) rgba(38,58,87,var(--lg-shadow)) !important;
+  transform: translateZ(0) scaleX(var(--lg-top-scale,1));
+  transition: background .22s ease,box-shadow .18s ease,transform .16s ease,border-color .2s ease;
+}
+.mn-liquid-glass-topbar .topBar > * { position: relative; z-index: 2; }
+.mn-liquid-glass-topbar .topBar::before {
+  content: "";
+  display: block !important;
+  position: absolute;
+  inset: 1px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 24px;
+  background: radial-gradient(54% 140% at var(--lg-glare-x) -42%,rgba(255,255,255,var(--lg-highlight)),rgba(255,255,255,.055) 37%,transparent 66%),linear-gradient(101deg,rgba(91,163,255,var(--lg-tint)),transparent 30%,rgba(255,255,255,.04) 52%,transparent 72%,rgba(86,226,214,var(--lg-tint)));
+  mix-blend-mode: screen;
+  opacity: var(--lg-refraction);
+}
+.mn-liquid-glass-topbar .topBar::after {
+  content: "";
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  bottom: -16px;
+  height: 22px;
+  z-index: -2;
+  pointer-events: none;
+  background: linear-gradient(180deg,rgba(218,234,249,.20),rgba(218,234,249,0));
+  -webkit-mask-image: linear-gradient(180deg,#000,transparent);
+  filter: blur(8px);
+  opacity: .24;
+}
+
+.mn-liquid-glass-topbar .iconButton {
+  background: rgba(255,255,255,.055) !important;
+  border: 1px solid rgba(255,255,255,.42) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.58),0 2px 7px rgba(40,61,91,.055) !important;
+  -webkit-backdrop-filter: blur(5px) saturate(150%) !important;
+  backdrop-filter: blur(5px) saturate(150%) !important;
+}
+
+.mn-liquid-glass-topbar .topNav {
+  position: relative !important;
+  padding: 4px !important;
+  border: 1px solid rgba(255,255,255,.38) !important;
+  border-radius: 18px !important;
+  background: linear-gradient(180deg,rgba(255,255,255,.07),rgba(214,228,244,.035)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.52),inset 0 -1px 0 rgba(28,51,82,.10),0 3px 10px rgba(23,43,70,.055) !important;
+  -webkit-backdrop-filter: blur(var(--lg-glass-blur)) saturate(var(--lg-glass-sat)) brightness(1.025) !important;
+  backdrop-filter: blur(var(--lg-glass-blur)) saturate(var(--lg-glass-sat)) brightness(1.025) !important;
+  overflow: visible !important;
+  touch-action: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+.mn-liquid-glass-topbar .topNav button {
+  position: relative;
+  z-index: 2;
+  color: #52647b !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  transition: color .13s ease,transform .17s cubic-bezier(.2,.8,.25,1.18),text-shadow .14s ease !important;
+  will-change: transform;
+}
+.mn-liquid-glass-topbar .topNav button:hover { color: #26384d !important; background: transparent !important; }
+.mn-liquid-glass-topbar .topNav button.active {
+  color: rgb(var(--lg-accent)) !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  text-shadow: 0 1px 0 rgba(255,255,255,.58) !important;
+}
+.mn-liquid-glass-topbar .topNav button.active::after { display: none !important; }
+.mn-liquid-glass-topbar .topNav button.lg-predict {
+  color: rgb(var(--lg-accent)) !important;
+  transform: translateY(-.6px) scale(1.045) !important;
+  text-shadow: 0 1px 8px rgba(var(--lg-accent),.12) !important;
+}
+.mn-liquid-glass-topbar .topNav button b {
+  background: rgba(255,255,255,.16) !important;
+  color: #53657c !important;
+  border: 1px solid rgba(255,255,255,.30) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.38) !important;
+  -webkit-backdrop-filter: blur(3px) saturate(145%) !important;
+  backdrop-filter: blur(3px) saturate(145%) !important;
+}
+.mn-liquid-glass-topbar .topNav button.active b,
+.mn-liquid-glass-topbar .topNav button.lg-predict b { color: rgb(var(--lg-accent)) !important; background: rgba(255,255,255,.20) !important; }
+
+.mn-liquid-glass-topbar .topNav::before {
+  content: "";
+  display: block !important;
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  left: var(--lg-lens-left,4px);
+  width: var(--lg-lens-width,72px);
+  height: calc(100% - 8px);
+  border-radius: var(--lg-lens-radius,14px);
+  pointer-events: none;
+  background: radial-gradient(72% 115% at var(--lg-caustic-x,26%) var(--lg-caustic-y,18%),rgba(255,255,255,.62),rgba(214,242,255,.16) 27%,transparent 55%),radial-gradient(90% 120% at 58% 118%,rgba(82,163,255,.10),transparent 57%),linear-gradient(180deg,rgba(255,255,255,var(--lg-glass-alpha)),rgba(233,243,252,.07));
+  border: 1px solid rgba(255,255,255,var(--lg-edge));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--lg-highlight)),inset 0 -1px 0 rgba(47,78,118,.14),inset 1px 0 0 rgba(255,255,255,.34),inset -1px 0 0 rgba(65,107,160,.10),0 5px 14px rgba(31,54,86,var(--lg-shadow)),0 0 0 1px rgba(71,129,196,.035);
+  -webkit-backdrop-filter: blur(var(--lg-glass-blur)) saturate(var(--lg-glass-sat)) brightness(1.055) contrast(1.035) !important;
+  backdrop-filter: blur(var(--lg-glass-blur)) saturate(var(--lg-glass-sat)) brightness(1.055) contrast(1.035) !important;
+  transform-origin: center;
+  transform: skewX(var(--lg-lens-skew,0deg)) scaleY(var(--lg-lens-scale-y,1));
+  filter: saturate(var(--lg-lens-saturate,100%)) brightness(var(--lg-lens-brightness,1));
+  transition: left .38s cubic-bezier(.18,.86,.22,1.13),width .38s cubic-bezier(.18,.86,.22,1.13),transform .28s cubic-bezier(.2,.86,.2,1.20),filter .15s ease,border-radius .18s ease,box-shadow .15s ease;
+  will-change: left,width,transform;
+}
+.mn-liquid-glass-topbar .topNav::after {
+  content: "";
+  display: block !important;
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  left: var(--lg-lens-left,4px);
+  width: var(--lg-lens-width,72px);
+  height: calc(100% - 8px);
+  border-radius: var(--lg-lens-radius,14px);
+  pointer-events: none;
+  background: radial-gradient(22px 15px at var(--lg-caustic-x,26%) var(--lg-caustic-y,18%),rgba(255,255,255,.92),rgba(205,245,255,.50) 26%,rgba(96,195,255,.11) 48%,transparent 72%),linear-gradient(112deg,transparent 18%,rgba(255,255,255,.18) 42%,transparent 61%);
+  mix-blend-mode: screen;
+  opacity: var(--lg-tail-opacity,.34);
+  filter: blur(var(--lg-tail-blur,0px));
+  transition: left .38s cubic-bezier(.18,.86,.22,1.13),width .38s cubic-bezier(.18,.86,.22,1.13),opacity .14s ease,background-position .14s ease;
+}
+.mn-liquid-glass-topbar .topNav.lg-dragging::before,
+.mn-liquid-glass-topbar .topNav.lg-dragging::after { transition: none !important; }
+.mn-liquid-glass-topbar .topNav.lg-dragging::after { opacity: .86; }
+.mn-liquid-glass-topbar .topNav.lg-dragging::before { box-shadow: inset 0 1px 0 rgba(255,255,255,.96),inset 2px 0 0 rgba(255,255,255,.36),inset -2px 0 0 rgba(55,101,161,.10),0 7px 17px rgba(44,69,104,.10),0 0 18px rgba(112,177,255,.055); }
+.mn-liquid-glass-topbar .topNav.lg-pressing::before { filter: saturate(1.13) brightness(1.055); }
+.mn-liquid-glass-topbar .topNav.lg-target-pulse::before { box-shadow: inset 0 1px 0 rgba(255,255,255,.98),inset 0 -1px 0 rgba(62,107,166,.08),0 6px 17px rgba(43,72,111,.095),0 0 16px rgba(var(--lg-accent),.055); }
+.mn-liquid-glass-topbar .topNav.lg-releasing::before,
+.mn-liquid-glass-topbar .topNav.lg-releasing::after { transition: left .43s cubic-bezier(.15,.82,.18,1.28),width .43s cubic-bezier(.15,.82,.18,1.28),transform .40s cubic-bezier(.16,.84,.18,1.22),filter .24s ease !important; }
+
+.mn-liquid-glass-topbar .overviewPage,
+.mn-liquid-glass-topbar .reviewPage,
+.mn-liquid-glass-topbar .settingsPage,
+.mn-liquid-glass-topbar .exportPage {
+  height: auto !important;
+  min-height: calc(100vh - 120px) !important;
+  overflow: visible !important;
+  background: transparent !important;
+}
+.mn-liquid-glass-topbar .mistakeSection {
+  height: auto !important;
+  min-height: 980px !important;
+  overflow: visible !important;
+  background: transparent !important;
+}
+.mn-liquid-glass-topbar .browserGrid { height: 860px !important; min-height: 860px !important; }
+
+@media (max-width: 800px) {
+  .mn-liquid-glass-topbar .topBar { margin: 7px 7px 14px !important; padding: 7px 8px !important; }
+  .mn-liquid-glass-topbar.shell > main { padding: 0 10px 320px !important; }
+}

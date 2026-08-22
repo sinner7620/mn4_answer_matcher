@@ -37,6 +37,9 @@ import {
 } from "./mistake-manager"
 import { checkForUpdates } from "./updater"
 import { exportMistakes } from "./mistake-export"
+import { clearNavigationRuntimeLog, exportNavigationRuntimeLog } from "./note-navigation"
+import { loadMatcherSettings, saveMatcherSettings } from "./settings"
+import { runTelemetryPostConnectivityTest } from "./telemetry"
 
 function selectedNode(): NodeNote | undefined {
   const selected = NodeNote.getSelectedNodes()
@@ -93,6 +96,27 @@ async function bridge(command: string, payload: any): Promise<any> {
   if (command === "removeMistakes") return removeMistakesByIds(payload?.recordIds)
   if (command === "repairMistakes") return repairAndOrganizeMistakes()
   if (command === "exportMistakes") return exportMistakes(payload || { format: "md" })
+  if (command === "exportRuntimeLog") return exportNavigationRuntimeLog()
+  if (command === "setDebugMode") {
+    const enabled = payload?.enabled === true
+    saveMatcherSettings({
+      debugModeEnabled: enabled,
+      experimentalGlassEnabled: enabled && loadMatcherSettings().experimentalGlassEnabled
+    })
+    if (!enabled) clearNavigationRuntimeLog()
+    showHUD(enabled ? "调试模式已开启" : "调试模式已关闭，运行日志已清空", 3)
+    return { enabled }
+  }
+  if (command === "setExperimentalGlass") {
+    if (!loadMatcherSettings().debugModeEnabled) throw new Error("请先开启调试模式")
+    const enabled = payload?.enabled === true
+    saveMatcherSettings({ experimentalGlassEnabled: enabled })
+    return { enabled }
+  }
+  if (command === "testTelemetryPost") {
+    if (!loadMatcherSettings().debugModeEnabled) throw new Error("请先开启调试模式")
+    return runTelemetryPostConnectivityTest()
+  }
   if (command === "checkUpdates") return checkForUpdates(true)
   if (command === "legacyMenu") return openMenu()
   if (command === "notify") return showHUD(String(payload?.message ?? ""), 3)

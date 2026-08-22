@@ -29,7 +29,7 @@ import {
   saveMistakeState,
   upsertMistakeRecord
 } from "./mistake-store"
-import { openNoteInMindMap } from "./note-navigation"
+import { openNoteInMindMap, recordRuntimeState } from "./note-navigation"
 import {
   cleanMistakeTags,
   customMistakeTagsFromSource,
@@ -75,19 +75,31 @@ function answerBinding(sourceNotebookId: string, sourceRootNodeId: string): Bind
 }
 
 function applySourceTags(record: MistakeRecord, previousCategories?: string[]): void {
+  recordRuntimeState("标签", "applySourceTags 前", `targetNoteId=${record.sourceNoteId} notebookId=${record.sourceNotebookId}`)
   const note = MN.db.getNoteById(record.sourceNoteId)
-  if (!note) return
+  if (!note) {
+    recordRuntimeState("标签", "applySourceTags 目标卡片不存在", `targetNoteId=${record.sourceNoteId}`)
+    return
+  }
   const node = new NodeNote(note, record.sourceNotebookId)
   node.tags = mistakeSourceTags(node.tags, record.level, manualTagsOf(record), previousCategories)
+  recordRuntimeState("标签", "node.tags 赋值后", `targetNoteId=${record.sourceNoteId}`)
   node.tidyupTags()
+  recordRuntimeState("标签", "tidyupTags 后", `targetNoteId=${record.sourceNoteId}`)
 }
 
 function removeSourceTags(record: MistakeRecord): void {
+  recordRuntimeState("标签", "removeSourceTags 前", `targetNoteId=${record.sourceNoteId} notebookId=${record.sourceNotebookId}`)
   const note = MN.db.getNoteById(record.sourceNoteId)
-  if (!note) return
+  if (!note) {
+    recordRuntimeState("标签", "removeSourceTags 目标卡片不存在", `targetNoteId=${record.sourceNoteId}`)
+    return
+  }
   const node = new NodeNote(note, record.sourceNotebookId)
   node.tags = withoutMistakeSourceTags(node.tags, manualTagsOf(record))
+  recordRuntimeState("标签", "remove node.tags 赋值后", `targetNoteId=${record.sourceNoteId}`)
   node.tidyupTags()
+  recordRuntimeState("标签", "remove tidyupTags 后", `targetNoteId=${record.sourceNoteId}`)
 }
 
 function syncManualTagsFromSource(record: MistakeRecord): MistakeRecord {
@@ -98,6 +110,11 @@ function syncManualTagsFromSource(record: MistakeRecord): MistakeRecord {
   if (sourceTags.length === storedTags.length && sourceTags.every((tag, index) => tag === storedTags[index])) {
     return record
   }
+  recordRuntimeState(
+    "标签反向同步",
+    "检测到 MarginNote 标签变化",
+    `targetNoteId=${record.sourceNoteId} storedTags=${storedTags.join("|") || "(空)"} sourceTags=${sourceTags.join("|") || "(空)"}`
+  )
   return {
     ...record,
     manualCategories: sourceTags,
@@ -109,16 +126,27 @@ function syncManualTagsFromSource(record: MistakeRecord): MistakeRecord {
 function persistSources(notebookIds: Iterable<string>): void {
   const uniqueIds = Array.from(new Set(notebookIds)).filter(Boolean)
   if (!uniqueIds.length) return
+  recordRuntimeState("标签持久化", "MN.db.savedb 前", `notebookIds=${uniqueIds.join(",")}`)
   MN.db.savedb()
-  for (const notebookId of uniqueIds) MN.db.setNotebookSyncDirty(notebookId)
+  recordRuntimeState("标签持久化", "MN.db.savedb 后", `notebookIds=${uniqueIds.join(",")}`)
+  for (const notebookId of uniqueIds) {
+    recordRuntimeState("标签持久化", "setNotebookSyncDirty 前", `notebookId=${notebookId}`)
+    MN.db.setNotebookSyncDirty(notebookId)
+    recordRuntimeState("标签持久化", "setNotebookSyncDirty 后", `notebookId=${notebookId}`)
+  }
 }
 
 function commitSourceTagMutation(notebookIds: Iterable<string>, mutation: () => void): void {
   const uniqueIds = Array.from(new Set(notebookIds)).filter(Boolean)
+  recordRuntimeState("标签事务", "undoGroupingWithRefresh 前", `notebookIds=${uniqueIds.join(",")}`)
   undoGroupingWithRefresh(() => {
+    recordRuntimeState("标签事务", "undoGroupingWithRefresh 内 mutation 前", `notebookIds=${uniqueIds.join(",")}`)
     mutation()
+    recordRuntimeState("标签事务", "undoGroupingWithRefresh 内 mutation 后", `notebookIds=${uniqueIds.join(",")}`)
     persistSources(uniqueIds)
+    recordRuntimeState("标签事务", "undoGroupingWithRefresh 内 persistSources 后", `notebookIds=${uniqueIds.join(",")}`)
   })
+  recordRuntimeState("标签事务", "undoGroupingWithRefresh 完成后", `notebookIds=${uniqueIds.join(",")}`)
 }
 
 function refreshRecord(record: MistakeRecord): MistakeRecord {
@@ -155,7 +183,9 @@ let lastFullTagRecoveryAt = 0
 let tagRecoveryQueue: Promise<void> = Promise.resolve()
 
 async function recoverMistakesFromSourceTagsInternal(targetNotebookId?: string): Promise<MistakeTagRecoveryResult> {
+  recordRuntimeState("标签恢复", "恢复扫描开始", `targetNotebookId=${targetNotebookId || "(全部)"}`)
   if (!targetNotebookId && Date.now() - lastFullTagRecoveryAt < FULL_TAG_RECOVERY_INTERVAL) {
+    recordRuntimeState("标签恢复", "恢复扫描被节流跳过", "targetNotebookId=(全部)")
     return { scanned: 0, found: 0, added: 0, existing: 0, failed: 0 }
   }
 
@@ -228,7 +258,13 @@ async function recoverMistakesFromSourceTagsInternal(targetNotebookId?: string):
 
   if (added) saveMistakeState(state)
   if (!targetNotebookId) lastFullTagRecoveryAt = Date.now()
-  return { scanned, found, added, existing, failed }
+  const result = { scanned, found, added, existing, failed }
+  recordRuntimeState(
+    "标签恢复",
+    "恢复扫描结束",
+    `targetNotebookId=${targetNotebookId || "(全部)"} scanned=${scanned} found=${found} added=${added} existing=${existing} failed=${failed}`
+  )
+  return result
 }
 
 /**
@@ -243,9 +279,18 @@ export function recoverMistakesFromSourceTags(targetNotebookId?: string): Promis
 
 export function scheduleMistakeTagRecovery(targetNotebookId?: string): void {
   const wait = targetNotebookId ? 1 : 3
+  recordRuntimeState("标签恢复", "安排恢复扫描", `targetNotebookId=${targetNotebookId || "(全部)"} delay=${wait}s`)
   void delay(wait)
-    .then(() => recoverMistakesFromSourceTags(targetNotebookId))
+    .then(() => {
+      recordRuntimeState("标签恢复", "延迟结束，准备恢复扫描", `targetNotebookId=${targetNotebookId || "(全部)"}`)
+      return recoverMistakesFromSourceTags(targetNotebookId)
+    })
     .then(result => {
+      recordRuntimeState(
+        "标签恢复",
+        "恢复任务完成",
+        `targetNotebookId=${targetNotebookId || "(全部)"} scanned=${result.scanned} found=${result.found} added=${result.added} existing=${result.existing} failed=${result.failed}`
+      )
       if (result.added > 0) showHUD(`已从 MarginNote 标签恢复 ${result.added} 道错题`, 4)
     })
     .catch(error => MN.error(error))
@@ -458,7 +503,9 @@ export async function reviewMistakesByIds(
 
   if (records.length) {
     saveMistakeState(state)
+    recordRuntimeState("标签事务", "批量复习 undoGroupingWithRefresh 前", `count=${records.length}`)
     undoGroupingWithRefresh(() => {
+      recordRuntimeState("标签事务", "批量复习 undoGroupingWithRefresh 内开始", `count=${records.length}`)
       for (const record of records) {
         try {
           applySourceTags(record)
@@ -467,7 +514,9 @@ export async function reviewMistakesByIds(
         }
       }
       persistSources(records.map(record => record.sourceNotebookId))
+      recordRuntimeState("标签事务", "批量复习 undoGroupingWithRefresh 内完成", `count=${records.length}`)
     })
+    recordRuntimeState("标签事务", "批量复习 undoGroupingWithRefresh 完成后", `count=${records.length}`)
   }
   return { changed: records.length, missing, records }
 }
@@ -653,7 +702,9 @@ export async function removeMistakesByIds(recordIds: unknown): Promise<BatchMist
 
   if (records.length) {
     saveMistakeState(state)
+    recordRuntimeState("标签事务", "批量取消错题 undoGroupingWithRefresh 前", `count=${records.length}`)
     undoGroupingWithRefresh(() => {
+      recordRuntimeState("标签事务", "批量取消错题 undoGroupingWithRefresh 内开始", `count=${records.length}`)
       for (const record of records) {
         try {
           removeSourceTags(record)
@@ -662,7 +713,9 @@ export async function removeMistakesByIds(recordIds: unknown): Promise<BatchMist
         }
       }
       persistSources(records.map(record => record.sourceNotebookId))
+      recordRuntimeState("标签事务", "批量取消错题 undoGroupingWithRefresh 内完成", `count=${records.length}`)
     })
+    recordRuntimeState("标签事务", "批量取消错题 undoGroupingWithRefresh 完成后", `count=${records.length}`)
   }
   return { changed: records.length, missing, records }
 }
@@ -758,6 +811,7 @@ export async function openLinkedMistakeOrSource(question: NodeNote, currentNoteb
 }
 
 export async function repairAndOrganizeMistakes(): Promise<void> {
+  recordRuntimeState("标签整理", "刷新错题分类索引开始")
   const state = loadMistakeState()
   let available = 0
   let missing = 0
@@ -765,13 +819,18 @@ export async function repairAndOrganizeMistakes(): Promise<void> {
     const record = refreshRecord(stored)
     if (MN.db.getNoteById(record.sourceNoteId)) {
       available++
+      recordRuntimeState("标签整理", "单题 undoGroupingWithRefresh 前", `targetNoteId=${record.sourceNoteId}`)
       undoGroupingWithRefresh(() => applySourceTags(record))
+      recordRuntimeState("标签整理", "单题 undoGroupingWithRefresh 后", `targetNoteId=${record.sourceNoteId}`)
       state.records[record.recordId] = record
     } else missing++
   }
   saveMistakeState(state)
+  recordRuntimeState("标签整理", "最终 MN.db.savedb 前", `available=${available} missing=${missing}`)
   MN.db.savedb()
+  recordRuntimeState("标签整理", "最终 MN.db.savedb 后", `available=${available} missing=${missing}`)
   showHUD(`错题索引已整理：${available} 道有效，${missing} 道原卡片暂不可用`, 5)
+  recordRuntimeState("标签整理", "刷新错题分类索引结束", `available=${available} missing=${missing}`)
 }
 
 export async function bindMistakeNotebook(): Promise<string | undefined> {

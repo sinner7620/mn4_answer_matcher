@@ -1,4 +1,5 @@
-export const TELEMETRY_ENDPOINT = "https://mnrails-telemetry.mr-wuyzhn.workers.dev/ping"
+export const TELEMETRY_EU_ENDPOINT = "https://cardlink.cn.eu.org/ping"
+export const TELEMETRY_FALLBACK_ENDPOINT = "https://mnrails-telemetry.mr-wuyzhn.workers.dev/ping"
 export const TELEMETRY_INTERVAL = 12 * 60 * 60 * 1000
 
 const INSTALL_ID_KEY = "marginnote.extension.mn4-answer-matcher.telemetry.install-id"
@@ -7,6 +8,16 @@ const REQUEST_TIMEOUT_SECONDS = 8
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 let reportInFlight = false
+
+export interface TelemetryPostTestResult {
+  endpoint: string
+  domain: string
+  reachable: boolean
+  accepted: boolean
+  statusCode?: number
+  durationMs: number
+  error?: string
+}
 
 export function telemetryChannel(version: string): "stable" | "beta" {
   return version.toLowerCase().includes("-beta") ? "beta" : "stable"
@@ -60,10 +71,10 @@ function rememberSuccess(timestamp: number): void {
   }
 }
 
-function postTelemetry(id: string): Promise<boolean> {
+function postTelemetryTo(endpoint: string, id: string): Promise<boolean> {
   return new Promise(resolve => {
     try {
-      const request = NSMutableURLRequest.requestWithURL(NSURL.URLWithString(TELEMETRY_ENDPOINT))
+      const request = NSMutableURLRequest.requestWithURL(NSURL.URLWithString(endpoint))
       request.setHTTPMethod("POST")
       request.setTimeoutInterval(REQUEST_TIMEOUT_SECONDS)
       request.setValueForHTTPHeaderField("application/json", "Content-Type")
@@ -90,6 +101,86 @@ function postTelemetry(id: string): Promise<boolean> {
       resolve(false)
     }
   })
+}
+
+function postConnectivityTestTo(endpoint: string, payload: Record<string, unknown>): Promise<TelemetryPostTestResult> {
+  const startedAt = Date.now()
+  let domain = endpoint
+  try {
+    domain = String(NSURL.URLWithString(endpoint)?.host || endpoint)
+  } catch {
+    // Keep the full endpoint as a readable fallback.
+  }
+  return new Promise(resolve => {
+    try {
+      const request = NSMutableURLRequest.requestWithURL(NSURL.URLWithString(endpoint))
+      request.setHTTPMethod("POST")
+      request.setTimeoutInterval(REQUEST_TIMEOUT_SECONDS)
+      request.setValueForHTTPHeaderField("application/json", "Content-Type")
+      request.setHTTPBody(NSData.dataWithStringEncoding(JSON.stringify(payload), 4))
+      NSURLConnection.sendAsynchronousRequestQueueCompletionHandler(
+        request,
+        NSOperationQueue.mainQueue(),
+        (response: any, _data: any, error: any) => {
+          const statusCode = telemetryStatusCode(response)
+          const errorMessage = error?.localizedDescription
+            ? String(error.localizedDescription)
+            : statusCode === undefined
+              ? "无响应"
+              : undefined
+          resolve({
+            endpoint,
+            domain,
+            reachable: statusCode !== undefined && !errorMessage,
+            accepted: statusCode === 204 && !errorMessage,
+            statusCode,
+            durationMs: Date.now() - startedAt,
+            error: errorMessage
+          })
+        }
+      )
+    } catch (error) {
+      resolve({
+        endpoint,
+        domain,
+        reachable: false,
+        accepted: false,
+        durationMs: Date.now() - startedAt,
+        error: String(error)
+      })
+    }
+  })
+}
+
+export async function runTelemetryPostConnectivityTest(): Promise<{
+  test: true
+  testedAt: string
+  payload: Record<string, unknown>
+  results: TelemetryPostTestResult[]
+}> {
+  const testedAt = new Date().toISOString()
+  const payload = {
+    schema: 1,
+    test: true,
+    content_type: "connectivity-test",
+    content: "MN4 调试模式 POST 连通性测试内容，不计入正式上报",
+    install_id: "00000000-0000-4000-8000-000000000000",
+    version: "test",
+    channel: telemetryChannel(__APP_VERSION__),
+    tested_at: testedAt
+  }
+  const results = [] as TelemetryPostTestResult[]
+  for (const endpoint of [TELEMETRY_EU_ENDPOINT, TELEMETRY_FALLBACK_ENDPOINT]) {
+    results.push(await postConnectivityTestTo(endpoint, payload))
+  }
+  return { test: true, testedAt, payload, results }
+}
+
+async function postTelemetry(id: string): Promise<boolean> {
+  for (const endpoint of [TELEMETRY_EU_ENDPOINT, TELEMETRY_FALLBACK_ENDPOINT]) {
+    if (await postTelemetryTo(endpoint, id)) return true
+  }
+  return false
 }
 
 export async function reportTelemetryIfDue(now = Date.now()): Promise<void> {

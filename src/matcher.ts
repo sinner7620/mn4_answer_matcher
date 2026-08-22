@@ -45,8 +45,12 @@ function pathTitles(node: NodeNote): string[] {
 function toIndexedAnswer(
   note: MbBookNote,
   notebookId: string
-): { answer: IndexedAnswer; brokenLinks: number } {
+): { answer?: IndexedAnswer; brokenLinks: number } {
   const node = new NodeNote(note, notebookId)
+  const resolvedNotebookId = String(node.note?.notebookId ?? "").trim()
+  if (resolvedNotebookId && resolvedNotebookId !== notebookId) {
+    return { brokenLinks: 0 }
+  }
   const safe = readSafeNote(node.note, noteId => MN.db.getNoteById(noteId))
   return {
     answer: {
@@ -87,6 +91,7 @@ export async function refreshIndex(scope: string | MindMapScope): Promise<Refres
       if (!isInMindMap(node, rootNodeId, childMapIds)) continue
       const result = toIndexedAnswer(note, notebookId)
       brokenLinks += result.brokenLinks
+      if (!result.answer) continue
       if (!byId.has(result.answer.id)) byId.set(result.answer.id, result.answer)
     } catch (error) {
       skippedCards++
