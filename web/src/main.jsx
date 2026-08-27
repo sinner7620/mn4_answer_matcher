@@ -105,6 +105,8 @@ function App() {
   const [selectedId, setSelectedId] = useState("")
   const [detail, setDetail] = useState(null)
   const [postTestResult, setPostTestResult] = useState(null)
+  const [exportRecordIds, setExportRecordIds] = useState([])
+  const [exportReturnTab, setExportReturnTab] = useState("settings")
   const selectedIdRef = useRef("")
   const versionTapRef = useRef({ count: 0, lastAt: 0 })
   selectedIdRef.current = selectedId
@@ -163,7 +165,10 @@ function App() {
     }
   }
 
-  function openExport() {
+  function openExport(recordIds = []) {
+    const ids = Array.isArray(recordIds) ? recordIds : []
+    setExportRecordIds(ids)
+    setExportReturnTab(tab === "mistakes" ? "mistakes" : "settings")
     setTab("export")
     requestAnimationFrame(() => document.querySelector("main")?.scrollTo({ top: 0, left: 0 }))
   }
@@ -268,6 +273,7 @@ function App() {
         action={action}
         reloadDetail={() => selectedId && openDetail(selectedId)}
         onRemoved={() => { setSelectedId(""); setDetail(null) }}
+        onExportSelected={recordIds => openExport(recordIds)}
       />}
 
       {tab === "review" && <DueReviewList
@@ -279,7 +285,8 @@ function App() {
         allRecords={data?.mistakes?.records || []}
         filteredRecords={records}
         action={action}
-        onBack={() => setTab("settings")}
+        initialRecordIds={exportRecordIds}
+        onBack={() => setTab(exportReturnTab)}
       />}
 
       {tab === "settings" && <section className="settingsPage">
@@ -307,7 +314,7 @@ function App() {
           ["locate", "定位当前错题原题", "跳转到当前错题记录的原脑图位置", () => action("openCurrentMistakeSource", null, false)],
 
           ["organize", "刷新错题分类索引", "重新读取脑图标题、父节点路径和答案绑定", () => action("repairMistakes")],
-          ["download", "导出错题", "以 Markdown 格式预览导出", openExport]
+          ["download", "导出错题", "以 PDF 或 Markdown 格式预览导出", openExport]
           ]} />
           <SettingsGroup title="插件" items={[
           ["info", "当前版本", `v${data?.version || "…"} · frank`, handleVersionTap],
@@ -315,7 +322,7 @@ function App() {
             ? "当前位于右上角，点击切换到左上角"
             : "当前位于左上角，点击切换到右上角", () => action("setPanelCloseButtonSide", { side: panelCloseSide === "right" ? "left" : "right" }), <span className={`preview-switch ${panelCloseSide === "right" ? "on" : ""}`} role="switch" aria-label="左侧或右侧" aria-checked={panelCloseSide === "right"} key="close-position" />],
           ["reset", "重置窗口位置与大小", "将工作台窗口恢复到默认尺寸", () => action("resetPanelFrame", null, false)],
-          ["download", "检查插件更新", "检查 GitHub 版本并选择安装或保存", () => action("checkUpdates", null, false)]
+          ["download", "检查插件更新", "检查新版本并保存安装。", () => action("checkUpdates", null, false)]
 
           ]} />
           {debugModeEnabled && <>
@@ -342,7 +349,7 @@ function PostTestResult({ result }) {
 }
 
 function MistakeBrowser(props) {
-  const { records, allRecords, selectedId, detail, openDetail, action, reloadDetail, onRemoved } = props
+  const { records, allRecords, selectedId, detail, openDetail, action, reloadDetail, onRemoved, onExportSelected } = props
   const [selecting, setSelecting] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
   const [batchLevel, setBatchLevel] = useState("0")
@@ -404,19 +411,19 @@ function MistakeBrowser(props) {
           <input value={props.query} onChange={event => props.setQuery(event.target.value)} placeholder="搜索题名、脑图、章节或标签" />
           <div className="filterSelectors"><CategoryCascade records={allRecords} path={props.categoryPath} setPath={props.setCategoryPath} />
           <select value={props.level} onChange={event => props.setLevel(event.target.value)}><option value="all">全部等级</option>{levelNames.map((name, index) => <option value={String(index)} key={name}>{index}级-{name}</option>)}</select></div>
-          <div className="listToolbar"><span>共 {allRecords.length} 道错题</span><button className="batchToggle" onClick={toggleSelecting}>{selecting ? "完成" : "选择"}</button></div>
+          <div className="listToolbar"><span>{selecting ? `${selectedIds.length}/${allRecords.length}` : `共 ${allRecords.length} 道错题`}</span><button className="batchToggle" onClick={toggleSelecting}>{selecting ? "完成" : "选择"}</button></div>
         </div>
         {selecting && <div className="batchBar active">
-          <strong>已选 {selectedIds.length} 道</strong>
           <button onClick={selectVisible} disabled={!records.length}>全选</button>
+          <button className="batchExport" onClick={() => onExportSelected(selectedIds)} disabled={!selectedIds.length}>导出</button>
           <button className="preview-change-level" onClick={() => setLevelPickerOpen(true)} disabled={!selectedIds.length}>更改等级</button>
           <select value={batchLevel} onChange={event => setBatchLevel(event.target.value)}>{levelNames.map((name, index) => <option value={index} key={name}>{index}级-{name}</option>)}</select>
           <button className="batchApply" onClick={changeSelectedLevel} disabled={!selectedIds.length}>修改等级</button>
           <button className="batchRemove" onClick={removeSelected} disabled={!selectedIds.length}>{removeArmed ? `确认取消 ${selectedIds.length} 道` : "取消错题"}</button>
         </div>}
-        <div className="mistakeList">{records.map(item => <MistakeListItem key={item.recordId} item={item} selected={!selecting && selectedId === item.recordId} selectable={selecting} checked={selectedSet.has(item.recordId)} onClick={() => selecting ? toggleRecord(item.recordId) : openDetail(item.recordId)} />)}{!records.length && <Empty title="没有符合条件的错题" text="清空搜索或筛选条件后重试。" />}</div>
+        <div className="mistakeList">{records.map(item => <MistakeListItem key={item.recordId} item={item} selected={selectedId === item.recordId} selectable={selecting} checked={selectedSet.has(item.recordId)} onPreview={() => openDetail(item.recordId)} onToggle={() => toggleRecord(item.recordId)} />)}{!records.length && <Empty title="没有符合条件的错题" text="清空搜索或筛选条件后重试。" />}</div>
       </aside>
-      <div className={`detailPane ${selecting ? "batchSelectionPane" : ""}`}>{selecting ? null : detail ? <MistakeDetail key={detail.record.recordId} detail={detail} customCategories={props.customCategories} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
+      <div className={`detailPane ${selecting ? "batchSelectionPane" : ""}`}>{detail ? <MistakeDetail key={detail.record.recordId} detail={detail} customCategories={props.customCategories} action={action} reloadDetail={reloadDetail} onRemoved={onRemoved} /> : <Empty title="选择一道错题" text="右侧将显示完整原题、对应答案、分类和定位操作。" />}</div>
     </div>
     <div id="preview-level-picker" className={levelPickerOpen ? "open" : ""} onClick={event => event.target === event.currentTarget && setLevelPickerOpen(false)}>
       <div><h2>批量更改错题等级</h2><section>{levelNames.map((name, level) => <button type="button" key={name} onClick={async () => { setBatchLevel(String(level)); setLevelPickerOpen(false); await changeSelectedLevel(level) }}><i className={`level${level}`}>{level}级</i><span>{name}</span></button>)}</section><footer><button type="button" onClick={() => setLevelPickerOpen(false)}>取消</button></footer></div>
@@ -548,12 +555,12 @@ function MistakeOverview({ records, onBrowse, onOpen, onSource }) {
   </section>
 }
 
-function MistakeListItem({ item, selected, selectable, checked, onClick }) {
+function MistakeListItem({ item, selected, selectable, checked, onPreview, onToggle }) {
   const rawTags = Array.isArray(item.manualCategories) && item.manualCategories.length
     ? item.manualCategories
     : item.manualCategory ? [item.manualCategory] : []
   const manualTags = Array.from(new Set(rawTags.map(tag => String(tag).trim().replace(/^#+/, "")).filter(Boolean)))
-  return <button className={`mistakeItem ${selected || checked ? "selected" : ""} ${selectable ? "selectable" : ""} ${item.noteAvailable ? "" : "unavailable"}`} onClick={onClick}>{selectable && <span className={`batchCheck ${checked ? "checked" : ""}`}>{checked ? "✓" : ""}</span>}<span className="mistakeItemBody"><strong>{item.sourceTitle}</strong>{manualTags.length > 0 ? <span className="mistakeItemTags">{manualTags.map(tag => <em key={tag}>#{tag}</em>)}</span> : <small>{item.categoryLabel}</small>}<small>添加 {formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small><small>{item.sourceNotebookTitle}{item.noteAvailable ? "" : " · 原卡片不可用"}</small></span><span className={`level level${item.level}`}>{item.level}级</span></button>
+  return <div role="button" tabIndex={0} className={`mistakeItem ${selected ? "selected" : ""} ${checked ? "checked" : ""} ${selectable ? "selectable" : ""} ${item.noteAvailable ? "" : "unavailable"}`} onClick={onPreview} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onPreview() } }}>{selectable && <input className="batchCheck" type="checkbox" aria-label={`选择 ${item.sourceTitle}`} checked={checked} onClick={event => event.stopPropagation()} onChange={onToggle} />}<span className="mistakeItemBody"><strong>{item.sourceTitle}</strong>{manualTags.length > 0 ? <span className="mistakeItemTags">{manualTags.map(tag => <em key={tag}>#{tag}</em>)}</span> : <small>{item.categoryLabel}</small>}<small>添加 {formatDate(item.createdAt)} · {reviewCountdown(item.nextReviewAt)}</small><small>{item.sourceNotebookTitle}{item.noteAvailable ? "" : " · 原卡片不可用"}</small></span><span className={`level level${item.level}`}>{item.level}级</span></div>
 }
 
 function DueReviewList({ records, action }) {
@@ -926,16 +933,19 @@ function ExportCustomPicker({ records, selectedIds, setSelectedIds }) {
   </div>
 }
 
-function MistakeExport({ allRecords, filteredRecords, action, onBack }) {
+function MistakeExport({ allRecords, filteredRecords, action, onBack, initialRecordIds = [] }) {
   const [format, setFormat] = useState("pdf")
-  const [scope, setScope] = useState("all")
+  const [scope, setScope] = useState(initialRecordIds.length ? "custom" : "all")
   const [filename, setFilename] = useState(`MN4错题导出-${new Date().toISOString().slice(0, 10)}`)
   const [include, setInclude] = useState({ question: true, answer: true, source: true, review: false })
   const [result, setResult] = useState("")
   const [answerLayout, setAnswerLayout] = useState("interleaved")
+  const [pageLayout, setPageLayout] = useState("compact")
+  const [actualPreview, setActualPreview] = useState(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [exportLevel, setExportLevel] = useState("all")
   const [selectedMapKeys, setSelectedMapKeys] = useState([])
-  const [customIds, setCustomIds] = useState([])
+  const [customIds, setCustomIds] = useState(initialRecordIds)
   const dueRecords = useMemo(() => allRecords.filter(item => item.noteAvailable && new Date(item.nextReviewAt).getTime() <= Date.now()), [allRecords])
   const mindMaps = useMemo(() => buildMindMapOptions(allRecords), [allRecords])
   const mindMapSignature = mindMaps.map(map => map.key).join("\u001f")
@@ -962,29 +972,31 @@ function MistakeExport({ allRecords, filteredRecords, action, onBack }) {
   const selected = scope === "custom" ? exportCandidates.filter(item => customIdSet.has(item.recordId)) : exportCandidates
   const toggle = key => setInclude(current => ({ ...current, [key]: !current[key] }))
 
+  const previewSignature = JSON.stringify({ format, recordIds: selected.map(item => item.recordId), answerLayout, pageLayout, include })
+  useEffect(() => setActualPreview(null), [previewSignature])
+
+  function exportPayload() {
+    return { format, filename, recordIds: selected.map(item => item.recordId), answerLayout, pageLayout, include }
+  }
+
+  async function runPreview() {
+    setResult("")
+    setPreviewLoading(true)
+    const response = await action("previewMistakeExport", exportPayload(), false)
+    setPreviewLoading(false)
+    if (response?.pdfUrl || response?.html || response?.markdown) setActualPreview(response)
+  }
+
   async function runExport() {
     setResult("")
-    const response = await action("exportMistakes", {
-      format,
-      filename,
-      recordIds: selected.map(item => item.recordId),
-      answerLayout,
-      include
-    }, false)
+    const response = await action("exportMistakes", exportPayload(), false)
     if (response?.pdfGenerated) setResult(`PDF 已生成，共 ${response.pages} 页；已打开系统保存面板（${response.count} 道）`)
     else if (response?.saved) setResult(`已打开系统另存面板：${response.filename}（${response.count} 道）`)
   }
 
-  const previewRecords = selected.slice(0, 3)
-  const previewQuestion = (item, index) => <article className="previewQuestion" key={`q-${item.recordId}`}><header><b>{index + 1}.</b><h2>{item.sourceTitle}</h2></header>{include.source && <em>来源：{item.sourceNotebookTitle}{(item.sourcePathTitles || []).length ? ` › ${(item.sourcePathTitles || []).join(" › ")}` : ""}</em>}{include.question && <div className="previewCardBody">题目卡片正文（标题不重复）</div>}{format === "pdf" && <span className="previewWritingSpace" />}</article>
-  const previewAnswer = (item, index) => <article className="previewAnswer" key={`a-${item.recordId}`}><header><b>答案 {index + 1}</b><h2>{item.sourceTitle}</h2></header><div className="previewCardBody">实时匹配答案</div></article>
-  const previewItems = include.answer && answerLayout === "questions-first"
-    ? [...previewRecords.map(previewQuestion), ...previewRecords.map(previewAnswer)]
-    : previewRecords.flatMap((item, index) => [previewQuestion(item, index), ...(include.answer ? [previewAnswer(item, index)] : [])])
-
   return <section className="exportPage">
-    <header className="sectionIntro"><h1>导出错题</h1><p>选择导出范围和内容，并在右侧确认文档结构。</p></header>
-    <div className="exportToolbar"><button onClick={onBack}><Icon name="left" /> 返回设置</button><span>{selected.length} 道错题将被导出</span></div>
+    <header className="sectionIntro"><h1>导出错题</h1><p>选择导出范围和内容，生成后可在右侧检查实际导出页面。</p></header>
+    <div className="exportToolbar"><button onClick={onBack}><Icon name="left" /> 返回</button><span>{selected.length} 道错题将被导出</span></div>
     {scope === "custom" && <ExportCustomPicker records={exportCandidates} selectedIds={customIds} setSelectedIds={setCustomIds} />}
     <div className="exportLayout">
       <div className="exportOptions">
@@ -1002,16 +1014,18 @@ function MistakeExport({ allRecords, filteredRecords, action, onBack }) {
         <div className="exportBlock"><h2>包含内容</h2><div className="includeChoices">
           {[["question", "完整原题"], ["answer", "实时匹配答案"], ["source", "来源小字"], ["review", "复习记录"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={include[key]} onChange={() => toggle(key)} /><span>{label}</span></label>)}
         </div></div>
+        {format === "pdf" && <div className="exportBlock"><h2>页面布局</h2><div className="pageLayoutChoices">
+          <button type="button" className={pageLayout === "compact" ? "selected" : ""} onClick={() => setPageLayout("compact")}><strong>紧凑排布</strong><small>题目之间仅保留一行空隙</small></button>
+          <button type="button" className={pageLayout === "one-per-page" ? "selected" : ""} onClick={() => setPageLayout("one-per-page")}><strong>一页一题</strong><small>最大书写留空</small></button>
+          <button type="button" className={pageLayout === "two-per-page" ? "selected" : ""} onClick={() => setPageLayout("two-per-page")}><strong>一页两题</strong><small>均分两块书写区域</small></button>
+          <button type="button" className={pageLayout === "three-per-page" ? "selected" : ""} onClick={() => setPageLayout("three-per-page")}><strong>一页三题</strong><small>均分三块书写区域</small></button>
+        </div><small className="exportHint">页面布局仅控制题目页；答案始终按全宽紧凑排布。</small></div>}
         {format === "pdf" && include.answer && <div className="exportBlock"><h2>题目 / 答案排布</h2><div className="answerLayoutChoices"><button type="button" className={answerLayout === "questions-first" ? "selected" : ""} onClick={() => setAnswerLayout("questions-first")}><strong>题目集中、答案集中</strong><small>题目1 → 题目2 → 答案1 → 答案2</small></button><button type="button" className={answerLayout === "interleaved" ? "selected" : ""} onClick={() => setAnswerLayout("interleaved")}><strong>题目答案交替</strong><small>题目1 → 答案1 → 题目2 → 答案2</small></button></div></div>}
         <div className="exportBlock"><h2>文件名</h2><div className="filenameInput"><input value={filename} onChange={event => setFilename(event.target.value)} /><b>{format === "md" ? ".zip" : ".pdf"}</b></div>{format === "md" && <small className="exportHint">压缩包内包含 UTF-8 Markdown 和 assets 图片目录</small>}</div>
-        <button className="exportPrimary" disabled={!selected.length || !Object.values(include).some(Boolean)} onClick={runExport}><Icon name="download" /> {format === "pdf" ? "生成并另存 PDF" : "导出并另存为"}</button>
+        <div className="exportActionButtons"><button className="exportPreviewButton" disabled={!selected.length || !Object.values(include).some(Boolean) || previewLoading} onClick={runPreview}><Icon name="eye" /> {previewLoading ? "正在生成预览…" : actualPreview ? "更新实际预览" : "生成实际预览"}</button><button className="exportPrimary" disabled={!selected.length || !Object.values(include).some(Boolean)} onClick={runExport}><Icon name="download" /> {format === "pdf" ? "生成并另存 PDF" : "导出并另存为"}</button></div>
         {result && <p className="exportResult">{result}</p>}
       </div>
-      <div className="exportPreview"><header><span><strong>导出预览</strong><small>{format === "pdf" ? "A4 文档" : "Markdown 文档"}</small></span><b>{selected.length} 道</b></header><div className={`previewPaper ${format}`}>
-        <p className="previewMeta">{format === "pdf" ? "A4 · 每题预留书写空白" : "Markdown"} · {formatDate(new Date())}</p>
-        {previewItems}
-        {selected.length > 3 && <p className="previewMore">其余 {selected.length - 3} 道错题…</p>}
-      </div></div>
+      <div className="exportPreview"><header><span><strong>实际导出预览</strong><small>{format === "pdf" ? `A4 · ${{ compact: "紧凑排布", "one-per-page": "一页一题", "two-per-page": "一页两题", "three-per-page": "一页三题" }[pageLayout]} · 答案紧凑排布` : "Markdown 文档"}</small></span><b>{actualPreview?.pages ? `${actualPreview.pages} 页` : `${selected.length} 道`}</b></header>{actualPreview?.previewPages?.length ? <div className="actualPreviewViewport actualPreviewPages">{actualPreview.previewPages.map((page, index) => <figure key={`${page}:${index}`}><img src={page} alt={`PDF 第 ${index + 1} 页`} /><figcaption>第 {index + 1} 页</figcaption></figure>)}</div> : actualPreview?.html ? <div className="actualPreviewViewport"><iframe title="实际 PDF 导出预览" srcDoc={actualPreview.html} /></div> : actualPreview?.pdfUrl ? <div className="actualPreviewViewport"><iframe title="实际 PDF 导出预览" src={actualPreview.pdfUrl} /></div> : actualPreview?.markdown ? <pre className="actualMarkdownPreview">{actualPreview.markdown}</pre> : <div className="actualPreviewEmpty"><Icon name="eye" /><strong>尚未生成实际预览</strong><span>点击左侧“生成实际预览”，这里将生成全部 PDF 页面并按页显示。</span></div>}</div>
     </div>
   </section>
 }

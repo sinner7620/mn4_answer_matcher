@@ -1,4 +1,4 @@
-import { delay, fetch, genNSURL, MN, popup, saveFile, showHUD } from "marginnote"
+import { delay, fetch, MN, popup, saveFile, showHUD } from "marginnote"
 import { backupBindings } from "./store"
 import { compareVersions } from "./version"
 
@@ -126,23 +126,6 @@ async function downloadUpdate(release: GitHubRelease, asset: ReleaseAsset): Prom
   }
 }
 
-async function downloadAndInstall(release: GitHubRelease, asset: ReleaseAsset): Promise<void> {
-  const path = await downloadUpdate(release, asset)
-  // Persist a second copy outside the add-on-local storage before MarginNote replaces the bundle.
-  backupBindings()
-  showHUD("更新包已下载，正在交给 MarginNote 安装…", 4)
-  let fileURL
-  try {
-    // Foundation classes are JSBridge globals on iPad, not module exports.
-    fileURL = typeof NSURL !== "undefined" && NSURL.fileURLWithPath
-      ? NSURL.fileURLWithPath(path)
-      : undefined
-  } catch {
-    fileURL = undefined
-  }
-  MN.app.openURL(fileURL ?? genNSURL(`file://${path}`, true))
-}
-
 async function downloadAndSave(release: GitHubRelease, asset: ReleaseAsset): Promise<void> {
   const path = await downloadUpdate(release, asset)
   backupBindings()
@@ -175,12 +158,11 @@ export async function checkForUpdates(interactive = true): Promise<void> {
     const result = await popup({
       title: `发现${channel} v${version}`,
       message: `当前版本：v${__APP_VERSION__}\n来源：${sourceLabel}\n\n${notes}`,
-      buttons: ["稍后", "下载并安装", "下载并保存（手动安装）"],
+      buttons: ["下载并手动安装"],
       canCancel: true,
       multiLine: true
     })
-    if (result.buttonIndex === 1) await downloadAndInstall(release, asset)
-    if (result.buttonIndex === 2) await downloadAndSave(release, asset)
+    if (result.buttonIndex === 0) await downloadAndSave(release, asset)
   } catch (error) {
     MN.error(error)
     if (interactive) showHUD(`检查更新失败：${String(error)}`, 5)

@@ -36,7 +36,7 @@ import {
   setMistakeCategoryById
 } from "./mistake-manager"
 import { checkForUpdates } from "./updater"
-import { exportMistakes } from "./mistake-export"
+import { exportMistakes, previewMistakeExport } from "./mistake-export"
 import { clearNavigationRuntimeLog, exportNavigationRuntimeLog } from "./note-navigation"
 import { loadMatcherSettings, saveMatcherSettings } from "./settings"
 import { runTelemetryPostConnectivityTest } from "./telemetry"
@@ -96,6 +96,7 @@ async function bridge(command: string, payload: any): Promise<any> {
   if (command === "removeMistakes") return removeMistakesByIds(payload?.recordIds)
   if (command === "repairMistakes") return repairAndOrganizeMistakes()
   if (command === "exportMistakes") return exportMistakes(payload || { format: "md" })
+  if (command === "previewMistakeExport") return previewMistakeExport(payload || { format: "pdf" })
   if (command === "exportRuntimeLog") return exportNavigationRuntimeLog()
   if (command === "setDebugMode") {
     const enabled = payload?.enabled === true

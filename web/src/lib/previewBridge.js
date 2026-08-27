@@ -165,6 +165,7 @@ export async function previewSend(command, payload = null) {
     testedAt: new Date().toISOString(),
     payload: { test: true, content: "MN4 调试模式 POST 连通性测试内容，不计入正式上报" },
     results: [
+      { endpoint: "https://telemetry.2608204.xyz/ping", domain: "telemetry.2608204.xyz", reachable: true, accepted: true, statusCode: 204, durationMs: 61 },
       { endpoint: "https://cardlink.cn.eu.org/ping", domain: "cardlink.cn.eu.org", reachable: true, accepted: true, statusCode: 204, durationMs: 83 },
       { endpoint: "https://mnrails-telemetry.mr-wuyzhn.workers.dev/ping", domain: "mnrails-telemetry.mr-wuyzhn.workers.dev", reachable: true, accepted: true, statusCode: 204, durationMs: 116 }
     ]
@@ -232,6 +233,37 @@ export async function previewSend(command, payload = null) {
     return { changed: removed.length, missing: ids.size - removed.length, records: removed }
   }
   if (command === "saveMistakeReviewCurves") return payload?.curves || workbench().reviewCurves
+  if (command === "previewMistakeExport") {
+    const chosen = records.filter(item => !payload?.recordIds?.length || payload.recordIds.includes(item.recordId))
+    if (!chosen.length) throw new Error("当前预览范围没有可用错题")
+    if (payload?.format === "md") {
+      const markdown = [`# MN4 错题导出`, "", ...chosen.flatMap((item, index) => [`## ${index + 1}. ${item.sourceTitle}`, "", `来源：${item.sourceNotebookTitle} › ${item.sourcePathTitles.join(" › ")}`, "", "### 原题卡片", "", "题目卡片正文", "", "### 实时匹配答案", "", "答案卡片正文", "", "---", ""])]
+      return { preview: true, format: "md", count: chosen.length, markdown: markdown.join("\n") }
+    }
+    const include = { question: true, answer: true, source: true, review: false, ...(payload?.include || {}) }
+    const question = (item, index) => `<article class="mistake question-unit"><header><b>${index + 1}.</b><h1>${item.sourceTitle}</h1></header>${include.source ? `<small>来源：${item.sourceNotebookTitle} › ${item.sourcePathTitles.join(" › ")}</small>` : ""}${include.question ? `<div class="card">${questionHtml}</div>` : ""}<div class="writing-space"></div></article>`
+    const answer = (item, index) => `<article class="mistake answer-unit"><header><b>答案 ${index + 1}</b><h1>${item.sourceTitle}</h1></header><div class="card">${answerHtml}</div></article>`
+    const questions = chosen.map(question)
+    const answers = include.answer ? chosen.map(answer) : []
+    const perPage = payload?.pageLayout === "one-per-page" ? 1 : payload?.pageLayout === "two-per-page" ? 2 : payload?.pageLayout === "three-per-page" ? 3 : 0
+    const flow = (blocks, className) => blocks.length ? `<section class="pdf-flow ${className}">${blocks.map(block => `<div class="pdf-slot">${block}</div>`).join("")}</section>` : ""
+    let content
+    if (!perPage) {
+      const blocks = payload?.answerLayout === "questions-first" ? [...questions, ...answers] : chosen.map((item, index) => `${question(item, index)}${include.answer ? answer(item, index) : ""}`)
+      content = flow(blocks, "pdf-compact-flow")
+    }
+    else {
+      const pages = Array.from({ length: Math.ceil(questions.length / perPage) }, (_, page) => {
+        const start = page * perPage
+        const pageQuestions = questions.slice(start, start + perPage)
+        const questionPage = `<section class="pdf-page slots-${perPage}">${pageQuestions.map(block => `<div class="pdf-slot">${block}</div>`).join("")}</section>`
+        return payload?.answerLayout === "interleaved" ? questionPage + flow(answers.slice(start, start + pageQuestions.length), "pdf-answer-flow") : questionPage
+      })
+      content = pages.join("") + (payload?.answerLayout === "questions-first" ? flow(answers, "pdf-answer-flow") : "")
+    }
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}html,body{margin:0;background:#fff}body{width:186mm;font:12px/1.55 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#172033}.pdf-flow .pdf-slot+.pdf-slot{margin-top:1.55em}.pdf-flow{width:186mm}.pdf-answer-flow{padding:2mm 1mm}.pdf-page{width:186mm;min-height:273mm;display:grid}.slots-1{grid-template-rows:1fr}.slots-2{grid-template-rows:repeat(2,minmax(0,1fr))}.slots-3{grid-template-rows:repeat(3,minmax(0,1fr))}.pdf-page .pdf-slot{padding:3mm 1mm}.mistake{padding:3mm 1mm}.mistake header{display:flex;align-items:baseline;gap:8px}.mistake h1{font-size:18px;margin:0}.mistake small{color:#7b8494}.card{margin-top:8px;padding:12px;background:#f4f6f9;border-radius:6px}.writing-space{height:${payload?.pageLayout === "one-per-page" ? "80mm" : payload?.pageLayout === "two-per-page" ? "35mm" : payload?.pageLayout === "three-per-page" ? "16mm" : "0"}}.answer-unit{margin-top:8px}</style></head><body class="layout-${payload?.pageLayout || "compact"}">${content}</body></html>`
+    return { preview: true, format: "pdf", count: chosen.length, html }
+  }
   if (command === "exportMistakes") {
     const chosen = records.filter(item => !payload?.recordIds?.length || payload.recordIds.includes(item.recordId))
     if (!chosen.length) throw new Error("当前导出范围没有可用错题")

@@ -37,7 +37,7 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
     return '<script>(function(){' +
       'window.__MN_PDF_EXPORT_PROTOCOL_V2__=true;' +
       'var started=false,notified=false,readyTimer=null;' +
-      'function signal(name,message){if(notified)return;notified=true;if(readyTimer)clearTimeout(readyTimer);var frame=document.createElement("iframe");frame.style.display="none";frame.src="mnaddon://"+name+(message?"?message="+encodeURIComponent(message):"");document.body.appendChild(frame)}' +
+      'function signal(name,message){if(notified)return;notified=true;if(readyTimer)clearTimeout(readyTimer);window.location.href="mnaddon://"+name+(message?"?message="+encodeURIComponent(message):"")}' +
       'function markBrokenImage(image){try{var holder=document.createElement("div");holder.setAttribute("data-pdf-image-error","true");holder.textContent="图片加载失败，原位置已保留";holder.style.cssText="min-height:48px;padding:14px;border:1px dashed #cbd5e1;border-radius:6px;background:#f8fafc;color:#64748b;text-align:center;font-size:11px";image.style.display="none";if(image.parentNode)image.parentNode.insertBefore(holder,image.nextSibling)}catch(error){}}' +
       'function waitForImages(){return new Promise(function(resolve){var images=Array.prototype.slice.call(document.images||[]),remaining=images.length,failed=0,settled=false;if(!remaining){resolve(0);return}function finish(){if(settled)return;settled=true;clearTimeout(timer);resolve(failed)}function done(ok,image){if(settled||image.__mnPdfImageSettled)return;image.__mnPdfImageSettled=true;if(!ok){failed+=1;markBrokenImage(image)}remaining-=1;if(!remaining)finish()}var timer=setTimeout(function(){images.forEach(function(image){if(!image.__mnPdfImageSettled){image.__mnPdfImageSettled=true;failed+=1;markBrokenImage(image)}});finish()},5000);images.forEach(function(image){if(image.complete){done(image.naturalWidth!==0,image);return}function loaded(){cleanup();done(true,image)}function broken(){cleanup();done(false,image)}function cleanup(){image.removeEventListener("load",loaded);image.removeEventListener("error",broken)}image.addEventListener("load",loaded);image.addEventListener("error",broken)})})}' +
       'function waitForFonts(){return new Promise(function(resolve){var settled=false,timer=setTimeout(done,3000);function done(){if(settled)return;settled=true;clearTimeout(timer);resolve()}var fonts=document.fonts&&document.fonts.ready;if(fonts&&typeof fonts.then==="function")fonts.then(done,done);else done()})}' +
@@ -49,10 +49,11 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
       '})();<\/script>';
   }
 
-  function preparePdfHtml(html) {
+  function preparePdfHtml(html, previewMode) {
     var source = String(html || "");
     if (source.indexOf("__MN_PDF_FILE_FALLBACK__") >= 0) return source;
-    var script = (source.indexOf("__MN_PDF_EXPORT_PROTOCOL_V2__") >= 0 ? "" : pdfReadinessScript()) +
+    var script = (previewMode ? '<script>window.__MN_PDF_PREVIEW_MODE__=true;</script>' : "") +
+      (source.indexOf("__MN_PDF_EXPORT_PROTOCOL_V2__") >= 0 ? "" : pdfReadinessScript()) +
       '<script src="./html2canvas.min.js"></script>' +
       '<script src="./jspdf.umd.min.js"></script>' +
       '<script src="./pdf-export-runtime.js"></script>';
@@ -60,12 +61,38 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
     return bodyEnd < 0 ? source + script : source.slice(0, bodyEnd) + script + source.slice(bodyEnd);
   }
 
-  function stagePdfRenderPage(controller, html) {
+  function removePdfPath(manager, path) {
+    try { if (manager.fileExistsAtPath(path)) manager.removeItemAtPath(path); } catch (error) {}
+  }
+
+  function cleanupPdfArtifacts(root, manager) {
+    var base = String(root).replace(/\/$/, "");
+    ["beta33", "beta34", "beta35", "beta36"].forEach(function (version) {
+      removePdfPath(manager, base + "/MN4AnswerMatcherPdfRuntime-" + version);
+    });
+    removePdfPath(manager, base + "/MN4AnswerMatcherPdfRuntime");
+    removePdfPath(manager, base + "/MN4AnswerMatcherPdfCache");
+    removePdfPath(manager, base + "/MN4错题导出预览.pdf");
+    for (var index = 1; index <= 200; index += 1) removePdfPath(manager, base + "/MN4错题导出预览-" + index + ".jpg");
+  }
+
+  function ensurePdfCacheDirectory(root) {
+    var manager = NSFileManager.defaultManager();
+    var directory = String(root).replace(/\/$/, "") + "/MN4AnswerMatcherPdfCache";
+    if (!manager.fileExistsAtPath(directory) &&
+        !manager.createDirectoryAtPathWithIntermediateDirectoriesAttributes(directory, true, null)) {
+      throw new Error("PDF 缓存目录创建失败");
+    }
+    return directory;
+  }
+
+  function stagePdfRenderPage(controller, html, previewMode) {
     var app = Application.sharedInstance();
     var root = app.tempPath || app.documentPath;
     if (!root) throw new Error("当前 MarginNote 未提供 PDF 临时目录");
     var manager = NSFileManager.defaultManager();
-    var directory = String(root).replace(/\/$/, "") + "/MN4AnswerMatcherPdfRuntime-beta33";
+    cleanupPdfArtifacts(root, manager);
+    var directory = String(root).replace(/\/$/, "") + "/MN4AnswerMatcherPdfRuntime";
     if (!manager.fileExistsAtPath(directory) &&
         !manager.createDirectoryAtPathWithIntermediateDirectoriesAttributes(directory, true, null)) {
       throw new Error("PDF 临时目录创建失败");
@@ -81,7 +108,7 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
       if (!manager.fileExistsAtPath(destination)) throw new Error("PDF 兼容资源复制失败：" + name);
     });
     var pagePath = directory + "/render.html";
-    var data = NSData.dataWithStringEncoding(preparePdfHtml(html), 4);
+    var data = NSData.dataWithStringEncoding(preparePdfHtml(html, previewMode), 4);
     if (!data || !dataLength(data) || !data.writeToFileAtomically(pagePath, true)) {
       throw new Error("PDF 渲染页面写入失败");
     }
@@ -129,7 +156,7 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
     return data;
   }
 
-  function saveGeneratedPdf(controller, webView, info, chunks) {
+  function saveGeneratedPdf(controller, webView, info, chunks, previewPages) {
     var request = controller && controller.exportPdfRequest;
     if (!request || webView !== controller.exportWebView) return;
     try {
@@ -138,9 +165,20 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
       var data = decodePdfBase64(base64);
       var app = Application.sharedInstance();
       var root = app.tempPath || app.documentPath;
-      if (!root || typeof app.saveFileWithUti !== "function") throw new Error("当前 MarginNote 未提供文件保存接口");
+      if (!root) throw new Error("当前 MarginNote 未提供 PDF 临时目录");
+      if (request.result.renderPdfPreview) {
+        var cacheDirectory = ensurePdfCacheDirectory(root);
+        var previewPath = cacheDirectory + "/preview.pdf";
+        if (!data.writeToFileAtomically(previewPath, true)) throw new Error("PDF 预览文件写入失败");
+        var previewUrl = String(NSURL.fileURLWithPath(previewPath).absoluteString()) + "?t=" + Date.now();
+        var previewResult = { preview: true, pdfPreview: true, format: "pdf", pdfUrl: previewUrl, previewPages: previewPages || [], html: request.result.html, count: request.result.count, pages: Number(info.pages) || 0, bytes: dataLength(data) };
+        releasePdfRequest(controller);
+        request.resolve(previewResult);
+        return;
+      }
+      if (typeof app.saveFileWithUti !== "function") throw new Error("当前 MarginNote 未提供文件保存接口");
       var filename = String(request.result.filename || "MN4错题导出.pdf").replace(/\.html$/i, ".pdf");
-      var path = String(root).replace(/\/$/, "") + "/" + filename;
+      var path = ensurePdfCacheDirectory(root) + "/" + filename;
       if (!data.writeToFileAtomically(path, true)) throw new Error("PDF 文件写入失败");
       try { webView.evaluateJavaScript("window.__MN_PDF_EXPORT_RELEASE__&&window.__MN_PDF_EXPORT_RELEASE__()", function () {}); } catch (error) {}
       app.saveFileWithUti(path, "com.adobe.pdf");
@@ -165,7 +203,8 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
       function pull(index) {
         if (!controller.exportPdfRequest || webView !== controller.exportWebView) return;
         if (index >= Number(info.chunks)) {
-          saveGeneratedPdf(controller, webView, info, chunks);
+          if (controller.exportPdfRequest.result.renderPdfPreview) pullPdfPreviewPages(controller, webView, info, chunks);
+          else saveGeneratedPdf(controller, webView, info, chunks, []);
           return;
         }
         webView.evaluateJavaScript("window.__MN_PDF_EXPORT_TAKE_CHUNK__(" + index + ")", function (chunk) {
@@ -180,6 +219,63 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
       }
       pull(0);
     });
+  }
+
+  function pullPdfPreviewPages(controller, webView, info, pdfChunks) {
+    var lengths = Array.isArray(info.previewPageLengths) ? info.previewPageLengths.map(Number) : [];
+    if (!lengths.length || lengths.length > 200 || lengths.some(function (length) { return !length || length > 30 * 1024 * 1024; })) {
+      saveGeneratedPdf(controller, webView, info, pdfChunks, []);
+      return;
+    }
+    var app = Application.sharedInstance();
+    var root = app.tempPath || app.documentPath;
+    if (!root) {
+      rejectPdfRequest(controller, new Error("当前 MarginNote 未提供 PDF 预览临时目录"));
+      return;
+    }
+    var cacheDirectory = ensurePdfCacheDirectory(root);
+    var urls = [];
+    function pullPage(pageIndex) {
+      if (!controller.exportPdfRequest || webView !== controller.exportWebView) return;
+      if (pageIndex >= lengths.length) {
+        saveGeneratedPdf(controller, webView, info, pdfChunks, urls);
+        return;
+      }
+      var expectedLength = lengths[pageIndex];
+      var chunkCount = Math.ceil(expectedLength / 65536);
+      var pageChunks = [];
+      function pullChunk(chunkIndex) {
+        if (!controller.exportPdfRequest || webView !== controller.exportWebView) return;
+        if (chunkIndex >= chunkCount) {
+          var base64 = pageChunks.join("");
+          if (base64.length !== expectedLength) {
+            rejectPdfRequest(controller, new Error("PDF 预览第 " + (pageIndex + 1) + " 页数据不完整"));
+            return;
+          }
+          try {
+            var data = decodePdfBase64(base64);
+            var path = cacheDirectory + "/preview-page-" + (pageIndex + 1) + ".jpg";
+            if (!data.writeToFileAtomically(path, true)) throw new Error("预览图片写入失败");
+            urls.push(String(NSURL.fileURLWithPath(path).absoluteString()) + "?t=" + Date.now());
+            pullPage(pageIndex + 1);
+          } catch (error) {
+            rejectPdfRequest(controller, error);
+          }
+          return;
+        }
+        webView.evaluateJavaScript("window.__MN_PDF_EXPORT_TAKE_PREVIEW_CHUNK__(" + pageIndex + "," + chunkIndex + ")", function (chunk) {
+          var text = String(chunk || "");
+          if (!text.length) {
+            rejectPdfRequest(controller, new Error("PDF 预览第 " + (pageIndex + 1) + " 页读取失败"));
+            return;
+          }
+          pageChunks.push(text);
+          pullChunk(chunkIndex + 1);
+        });
+      }
+      pullChunk(0);
+    }
+    pullPage(0);
   }
 
   function beginPdfFileGeneration(controller, webView) {
@@ -223,7 +319,7 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
   }
 
   function renderPdf(context, result) {
-    if (!result || !result.renderPdf) return result;
+    if (!result || (!result.renderPdf && !result.renderPdfPreview)) return result;
     return new Promise(function (resolve, reject) {
       var controller = context.controller;
       if (controller.exportPdfRequest) rejectPdfRequest(controller, new Error("新的打印任务已替换上一个任务"));
@@ -238,7 +334,7 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
       controller.exportWebView.delegate = controller;
       var study = Application.sharedInstance().studyController(context.addon.window);
       study.view.addSubview(controller.exportWebView);
-      var entry = NSURL.fileURLWithPath(stagePdfRenderPage(controller, result.html));
+      var entry = NSURL.fileURLWithPath(stagePdfRenderPage(controller, result.html, result.renderPdfPreview === true));
       controller.exportWebView.loadRequest(NSURLRequest.requestWithURL(entry));
     });
   }
@@ -265,7 +361,7 @@ var __MNAM_WEB_BRIDGE_GLOBAL__ = (function () {
         : attachPanelSettings(dashboard);
     }
     var result = __MN_ANSWER_CORE_GLOBAL__.bridge(command, payload);
-    if (command !== "exportMistakes") return result;
+    if (command !== "exportMistakes" && command !== "previewMistakeExport") return result;
     if (result && typeof result.then === "function") return result.then(function (value) { return renderPdf(context, value); });
     return renderPdf(context, result);
   }

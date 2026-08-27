@@ -14,7 +14,7 @@ test("切换卡片时旧 close 事件不会隐藏新卡片工具栏", () => {
   assert.match(source, /hideAnswerToolbar\(\)/)
 })
 
-test("Beta 3 会在启动、回到前台和打开学习集时触发错题标签恢复", () => {
+test("Beta 启动、回到前台和打开学习集时仅调度可节流去重的错题标签恢复", () => {
   const source = readFileSync("src/plugin.ts", "utf8")
   assert.match(source, /sceneWillConnect\(\)[\s\S]*scheduleMistakeTagRecovery\(\)/)
   assert.match(source, /applicationWillEnterForeground\(\)[\s\S]*scheduleMistakeTagRecovery\(\)/)

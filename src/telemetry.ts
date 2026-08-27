@@ -1,3 +1,4 @@
+export const TELEMETRY_PRIMARY_ENDPOINT = "https://telemetry.2608204.xyz/ping"
 export const TELEMETRY_EU_ENDPOINT = "https://cardlink.cn.eu.org/ping"
 export const TELEMETRY_FALLBACK_ENDPOINT = "https://mnrails-telemetry.mr-wuyzhn.workers.dev/ping"
 export const TELEMETRY_INTERVAL = 12 * 60 * 60 * 1000
@@ -170,14 +171,22 @@ export async function runTelemetryPostConnectivityTest(): Promise<{
     tested_at: testedAt
   }
   const results = [] as TelemetryPostTestResult[]
-  for (const endpoint of [TELEMETRY_EU_ENDPOINT, TELEMETRY_FALLBACK_ENDPOINT]) {
+  for (const endpoint of [
+    TELEMETRY_PRIMARY_ENDPOINT,
+    TELEMETRY_EU_ENDPOINT,
+    TELEMETRY_FALLBACK_ENDPOINT
+  ]) {
     results.push(await postConnectivityTestTo(endpoint, payload))
   }
   return { test: true, testedAt, payload, results }
 }
 
 async function postTelemetry(id: string): Promise<boolean> {
-  for (const endpoint of [TELEMETRY_EU_ENDPOINT, TELEMETRY_FALLBACK_ENDPOINT]) {
+  for (const endpoint of [
+    TELEMETRY_PRIMARY_ENDPOINT,
+    TELEMETRY_EU_ENDPOINT,
+    TELEMETRY_FALLBACK_ENDPOINT
+  ]) {
     if (await postTelemetryTo(endpoint, id)) return true
   }
   return false

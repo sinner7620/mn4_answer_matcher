@@ -40,6 +40,7 @@ import {
 
 const LAST_REMINDER_KEY = "marginnote.extension.mn4-answer-matcher.mistake-reminder.v2"
 const REMINDER_THROTTLE = 6 * 60 * 60 * 1000
+const LAST_FULL_TAG_RECOVERY_KEY = "marginnote.extension.mn4-answer-matcher.mistake-recovery.last-full.v1"
 
 function noteId(note: MbBookNote | any): string {
   return String(note?.noteId ?? note?.noteid ?? note?.id ?? note?.note?.noteId ?? "").trim()
@@ -179,8 +180,26 @@ export interface MistakeTagRecoveryResult {
 }
 
 const FULL_TAG_RECOVERY_INTERVAL = 30 * 60 * 1000
-let lastFullTagRecoveryAt = 0
+function storedFullTagRecoveryAt(): number {
+  try {
+    return NSUserDefaults.standardUserDefaults().doubleForKey(LAST_FULL_TAG_RECOVERY_KEY) || 0
+  } catch {
+    return 0
+  }
+}
+
+function rememberFullTagRecovery(at: number): void {
+  try {
+    NSUserDefaults.standardUserDefaults().setDoubleForKey(at, LAST_FULL_TAG_RECOVERY_KEY)
+  } catch {
+    // In-memory throttling remains available when preferences cannot be written.
+  }
+}
+
+let lastFullTagRecoveryAt = storedFullTagRecoveryAt()
 let tagRecoveryQueue: Promise<void> = Promise.resolve()
+let nextRecoveryScheduleToken = 0
+const scheduledRecoveryTokens = new Map<string, number>()
 
 async function recoverMistakesFromSourceTagsInternal(targetNotebookId?: string): Promise<MistakeTagRecoveryResult> {
   recordRuntimeState("标签恢复", "恢复扫描开始", `targetNotebookId=${targetNotebookId || "(全部)"}`)
@@ -252,12 +271,15 @@ async function recoverMistakesFromSourceTagsInternal(targetNotebookId?: string):
         MN.error(error)
       }
 
-      if (index % 80 === 79) await delay(0.01)
+      if (index % 40 === 39) await delay(0.01)
     }
   }
 
   if (added) saveMistakeState(state)
-  if (!targetNotebookId) lastFullTagRecoveryAt = Date.now()
+  if (!targetNotebookId) {
+    lastFullTagRecoveryAt = Date.now()
+    rememberFullTagRecovery(lastFullTagRecoveryAt)
+  }
   const result = { scanned, found, added, existing, failed }
   recordRuntimeState(
     "标签恢复",
@@ -278,14 +300,23 @@ export function recoverMistakesFromSourceTags(targetNotebookId?: string): Promis
 }
 
 export function scheduleMistakeTagRecovery(targetNotebookId?: string): void {
-  const wait = targetNotebookId ? 1 : 3
+  const wait = targetNotebookId ? 2 : 30
+  const scheduleKey = targetNotebookId || "__all__"
+  const scheduleToken = ++nextRecoveryScheduleToken
+  scheduledRecoveryTokens.set(scheduleKey, scheduleToken)
   recordRuntimeState("标签恢复", "安排恢复扫描", `targetNotebookId=${targetNotebookId || "(全部)"} delay=${wait}s`)
   void delay(wait)
     .then(() => {
+      if (scheduledRecoveryTokens.get(scheduleKey) !== scheduleToken) {
+        recordRuntimeState("标签恢复", "跳过重复恢复扫描", `targetNotebookId=${targetNotebookId || "(全部)"}`)
+        return undefined
+      }
+      scheduledRecoveryTokens.delete(scheduleKey)
       recordRuntimeState("标签恢复", "延迟结束，准备恢复扫描", `targetNotebookId=${targetNotebookId || "(全部)"}`)
       return recoverMistakesFromSourceTags(targetNotebookId)
     })
     .then(result => {
+      if (!result) return
       recordRuntimeState(
         "标签恢复",
         "恢复任务完成",

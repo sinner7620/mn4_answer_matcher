@@ -639,3 +639,38 @@ html, body { position: fixed !important; inset: 0 !important; touch-action: none
   .mindMapSelectTrigger { padding-left: 7px !important; padding-right: 7px !important; font-size: 9px !important; }
   .sourcePanel > header > div:first-child small { max-width: 190px; }
 }
+
+/* Batch selection: the checkbox changes membership; the row always opens preview. */
+.mistakeSidebar .batchBar.active {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+.mistakeItem.selectable .batchCheck {
+  display: block !important;
+  flex: 0 0 17px !important;
+  width: 17px !important;
+  height: 17px !important;
+  margin: 3px 1px 0 0 !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  accent-color: var(--preview-accent, #5369df);
+  -webkit-appearance: checkbox !important;
+  appearance: auto !important;
+  border: initial !important;
+  background: initial !important;
+  cursor: pointer;
+}
+.mistakeItem.selectable.checked {
+  background: #f8faff !important;
+}
+.mistakeItem[role="button"]:focus-visible {
+  outline: 2px solid var(--preview-accent, #5369df);
+  outline-offset: -2px;
+}
+.batchBar .batchExport {
+  color: #fff !important;
+  border-color: var(--preview-accent, #5369df) !important;
+  background: var(--preview-accent, #5369df) !important;
+}
+.batchBar .batchExport:disabled {
+  opacity: .45;
+}

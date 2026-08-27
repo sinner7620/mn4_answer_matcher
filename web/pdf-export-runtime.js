@@ -5,14 +5,12 @@
   var started = false;
   var notified = false;
   var pdfBase64 = "";
+  var pdfPreviewPages = [];
 
   function signal(name, message) {
     if (notified) return;
     notified = true;
-    var frame = document.createElement("iframe");
-    frame.style.display = "none";
-    frame.src = "mnaddon://" + name + (message ? "?message=" + encodeURIComponent(message) : "");
-    document.body.appendChild(frame);
+    window.location.href = "mnaddon://" + name + (message ? "?message=" + encodeURIComponent(message) : "");
   }
 
   function markBrokenImage(image) {
@@ -134,13 +132,37 @@
       allowTaint: false,
       imageTimeout: 5000,
       scrollX: 0,
-      scrollY: 0
+      scrollY: 0,
+      onclone: function (clonedDocument) {
+        Array.prototype.forEach.call(clonedDocument.querySelectorAll("iframe, [data-pdf-control]"), function (element) {
+          if (element.parentNode) element.parentNode.removeChild(element);
+        });
+      },
+      ignoreElements: function (element) {
+        return element.tagName === "IFRAME" || (element.hasAttribute && element.hasAttribute("data-pdf-control"));
+      }
     }).then(function (canvas) {
       var pageWidth = pdf.internal.pageSize.getWidth();
       var pageHeight = pdf.internal.pageSize.getHeight();
       var margin = 42;
       var drawWidth = pageWidth - margin * 2;
       var drawHeight = pageHeight - margin * 2;
+      var isFixedPage = node.classList && node.classList.contains("pdf-page");
+      if (isFixedPage) {
+        if (state.pages > 0) pdf.addPage("a4", "portrait");
+        var fixedScale = Math.min(drawWidth / canvas.width, drawHeight / canvas.height);
+        var fixedWidth = canvas.width * fixedScale;
+        var fixedHeight = canvas.height * fixedScale;
+        var fixedX = (pageWidth - fixedWidth) / 2;
+        var fixedY = (pageHeight - fixedHeight) / 2;
+        var fixedImage = canvas.toDataURL("image/jpeg", 0.97);
+        pdf.addImage(fixedImage, "JPEG", fixedX, fixedY, fixedWidth, fixedHeight, undefined, "SLOW");
+        if (window.__MN_PDF_PREVIEW_MODE__) pdfPreviewPages.push(fixedImage.replace(/^data:image\/jpeg;base64,/, ""));
+        state.pages += 1;
+        canvas.width = 1;
+        canvas.height = 1;
+        return;
+      }
       var sliceHeight = Math.max(1, Math.floor(canvas.width * drawHeight / drawWidth));
       for (var y = 0; y < canvas.height; y += sliceHeight) {
         if (state.pages > 0) pdf.addPage("a4", "portrait");
@@ -153,7 +175,9 @@
         context.fillRect(0, 0, slice.width, slice.height);
         context.drawImage(canvas, 0, y, canvas.width, height, 0, 0, canvas.width, height);
         var renderedHeight = drawWidth * height / canvas.width;
-        pdf.addImage(slice.toDataURL("image/jpeg", 0.97), "JPEG", margin, margin, drawWidth, renderedHeight, undefined, "SLOW");
+        var sliceImage = slice.toDataURL("image/jpeg", 0.97);
+        pdf.addImage(sliceImage, "JPEG", margin, margin, drawWidth, renderedHeight, undefined, "SLOW");
+        if (window.__MN_PDF_PREVIEW_MODE__) pdfPreviewPages.push(sliceImage.replace(/^data:image\/jpeg;base64,/, ""));
         state.pages += 1;
         slice.width = 1;
         slice.height = 1;
@@ -166,8 +190,9 @@
   function generatePdf() {
     if (typeof window.html2canvas !== "function") throw new Error("html2canvas 未加载");
     if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") throw new Error("jsPDF 未加载");
-    var nodes = Array.prototype.slice.call(document.querySelectorAll(".cover, .mistake"));
-    if (!nodes.length) nodes = [document.body];
+    var covers = Array.prototype.slice.call(document.querySelectorAll(".cover"));
+    var layoutNodes = Array.prototype.slice.call(document.querySelectorAll(".pdf-page, .pdf-flow"));
+    var nodes = layoutNodes.length ? covers.concat(layoutNodes) : [document.body];
     var pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "pt", format: "a4", compress: true, precision: 16 });
     var state = { pages: 0 };
     var chain = Promise.resolve();
@@ -182,7 +207,8 @@
         base64Length: pdfBase64.length,
         chunkSize: CHUNK_SIZE,
         chunks: Math.ceil(pdfBase64.length / CHUNK_SIZE),
-        pages: state.pages
+        pages: state.pages,
+        previewPageLengths: pdfPreviewPages.map(function (page) { return page.length; })
       };
       signal("pdf-data-ready");
     });
@@ -193,8 +219,15 @@
     return pdfBase64.slice(offset, offset + CHUNK_SIZE);
   };
 
+  window.__MN_PDF_EXPORT_TAKE_PREVIEW_CHUNK__ = function (pageIndex, chunkIndex) {
+    var page = pdfPreviewPages[Math.max(0, Number(pageIndex) || 0)] || "";
+    var offset = Math.max(0, Number(chunkIndex) || 0) * CHUNK_SIZE;
+    return page.slice(offset, offset + CHUNK_SIZE);
+  };
+
   window.__MN_PDF_EXPORT_RELEASE__ = function () {
     pdfBase64 = "";
+    pdfPreviewPages = [];
     window.__MN_PDF_EXPORT_INFO__ = null;
     return true;
   };
