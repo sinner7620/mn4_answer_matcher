@@ -1,6 +1,6 @@
 {
   "name": "mn4-answer-matcher",
-  "version": "1.9.12",
+  "version": "1.9.13",
   "private": true,
   "description": "MarginNote 4 跨脑图答案匹配插件",
   "author": "frank",
@@ -15,7 +15,9 @@
     "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "marginnote": "0.9.30"
+    "katex": "0.18.4",
+    "marginnote": "0.9.30",
+    "marked": "18.0.11"
   },
   "devDependencies": {
     "adm-zip": "0.5.16",

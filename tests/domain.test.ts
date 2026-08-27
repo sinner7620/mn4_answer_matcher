@@ -162,6 +162,25 @@ test("完整卡片 HTML 包含图片摘录、图片评论和子卡片", () => {
   assert.doesNotMatch(html, /OCR 文本/)
 })
 
+test("答案卡片文字支持 Markdown 和行内、块级 LaTeX", () => {
+  const note = {
+    noteTitle: "Markdown 答案",
+    excerptText: "## 结论\n\n- 第一项\n- 第二项",
+    comments: [
+      { type: "TextNote", text: "行内公式 $E=mc^2$ 和 **重点**" },
+      { type: "TextNote", text: "$$\\int_0^1 x^2\\,dx=\\frac{1}{3}$$" },
+      { type: "TextNote", text: "代码中的公式不渲染：`$x$`" }
+    ]
+  }
+  const html = renderCardHtml(note, "问题", () => undefined, () => undefined)
+  assert.match(html, /<h2>结论<\/h2>/)
+  assert.match(html, /<li>第一项<\/li>/)
+  assert.match(html, /<strong>重点<\/strong>/)
+  assert.match(html, /<span class="katex"><math/)
+  assert.match(html, /<math[^>]*display="block"/)
+  assert.match(html, /<code>\$x\$<\/code>/)
+})
+
 test("合并卡片会递归展示全部有效内容并阻止循环引用", () => {
   const first: any = {
     noteId: "first",

@@ -8,9 +8,15 @@ importers:
 
   .:
     dependencies:
+      katex:
+        specifier: 0.18.4
+        version: 0.18.4
       marginnote:
         specifier: 0.9.30
         version: 0.9.30
+      marked:
+        specifier: 18.0.11
+        version: 18.0.11
     devDependencies:
       '@types/adm-zip':
         specifier: 0.5.7
@@ -196,6 +202,10 @@ packages:
     resolution: {integrity: sha512-TGw5yVi4saajsSEgz25grObGHEUaDrniwvA2qwSC060KfqGPdglhvPMA2lPIoxs3PQIItj2iag35fONcQqgUaQ==}
     engines: {node: '>=12.0'}
 
+  commander@8.3.0:
+    resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
+    engines: {node: '>= 12'}
+
   esbuild@0.25.6:
     resolution: {integrity: sha512-GVuzuUwtdsghE3ocJ9Bs8PNoF13HNQ5TXbEi2AhvVb8xU1Iwt9Fos9FEamfoee+u/TOsn7GUWc04lz46n2bbTg==}
     engines: {node: '>=18'}
@@ -209,12 +219,21 @@ packages:
   get-tsconfig@4.14.0:
     resolution: {integrity: sha512-yTb+8DXzDREzgvYmh6s9vHsSVCHeC0G3PI5bEXNBHtmshPnO+S5O7qgLEOn0I5QvMy6kpZN8K1NKGyilLb93wA==}
 
+  katex@0.18.4:
+    resolution: {integrity: sha512-IMPntbRLOU+eu88XDiFKqQ8Akhr9Tv7jDMXqPhjG9SI1JMA4DIgXk4x9k4skJz2NZJXBRbC+2pYBLj9olqcZow==}
+    hasBin: true
+
   lru-cache@6.0.0:
     resolution: {integrity: sha512-Jo6dJ04CmSjuznwJSS3pUeWmd/H0ffTlkXXgwZi+eq1UCmqQwCh+eLsYOYCwY991i2Fah4h1BEMCx4qThGbsiA==}
     engines: {node: '>=10'}
 
   marginnote@0.9.30:
     resolution: {integrity: sha512-KbWpiJAqORiyUIqAYVv6kB/KzgY5FGMllobIBezrKhlTkwllTbPjmKpXxw6PSWItjANFcO98d1HNgBAiK+SGiQ==}
+
+  marked@18.0.11:
+    resolution: {integrity: sha512-HnslJfsZkRPBDJRHvVtAaWlZHEpSu7u8LgQuJCELjRKuWR+hpq4A7sLq3p8HaI9ypVoXDXxV34CsQJEe1+J5Aw==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
@@ -330,6 +349,8 @@ snapshots:
 
   adm-zip@0.5.16: {}
 
+  commander@8.3.0: {}
+
   esbuild@0.25.6:
     optionalDependencies:
       '@esbuild/aix-ppc64': 0.25.6
@@ -366,6 +387,10 @@ snapshots:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
+  katex@0.18.4:
+    dependencies:
+      commander: 8.3.0
+
   lru-cache@6.0.0:
     dependencies:
       yallist: 4.0.0
@@ -373,6 +398,8 @@ snapshots:
   marginnote@0.9.30:
     dependencies:
       semver: 7.3.8
+
+  marked@18.0.11: {}
 
   resolve-pkg-maps@1.0.0: {}
 

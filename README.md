@@ -4,7 +4,7 @@
 
 ## 安装
 
-直接双击 `dist/mn4-answer-matcher-v1.9.11.mnaddon`，由 MarginNote 4 导入。
+直接双击 `dist/mn4-answer-matcher-v1.9.13.mnaddon`，由 MarginNote 4 导入。
 > 此版本已通过 MarginNote 官方认证。
 
 插件每 12 小时自动检查一次正式版更新；也可从插件菜单选择“检查插件更新”，下载并保存正式版安装包，或查看“增加错题功能”的 Beta 版说明并下载 Beta 安装包。更新检查优先请求 [GitHub Releases](https://github.com/sinner7620/mn4_answer_matcher/releases)，GitHub 检查或下载失败时自动回退到 [Gitee Releases](https://gitee.com/baidreams/CardLink/releases)。点开保存的 `.mnaddon` 文件即可手动安装，原有脑图绑定记录会保留，并在下载前额外写入恢复备份。
@@ -19,6 +19,8 @@
 顶部插件图标用于绑定、更换、刷新和解除答案脑图；日常查询可直接使用卡片旁的“查答案”按钮。
 
 答案卡片会显示标题、摘录、文字/HTML/图片评论、`LinkNote.q_htext` 合并文字、`LinkNote.q_hpic` 合并图片、旧格式递归合并内容和直接子卡片。循环合并引用会自动去重。图片从 MarginNote 数据库读取并以内嵌方式显示。带有 `标准答案` 标签的匹配卡片排在前面。
+
+文字摘录、文字评论和合并文字支持 GFM Markdown；LaTeX 公式可使用 `$...$`、`$$...$$`、`\(...\)` 或 `\[...\]`。Markdown 与公式均由插件离线渲染，不依赖网络资源。
 
 答案脑图中若存在已经失效的合并卡片引用，插件会忽略该引用并继续建立索引；单张异常卡片不会导致整张脑图绑定失败。
 
